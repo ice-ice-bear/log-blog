@@ -1,0 +1,16 @@
+chrome:
+  profiles: ["Default"]
+  history_db_base: "~/Library/Application Support/Google/Chrome"
+
+time_range_hours: 24
+
+blog:
+  repo_path: "~/Documents/github/ice-ice-bear.github.io"
+  repo_url: "https://github.com/ice-ice-bear/ice-ice-bear.github.io.git"
+  content_dir: "content/posts"
+  language: "auto"  # "auto" (detect from Chrome), "ko", "en"
+
+playwright:
+  headless: true
+  timeout_ms: 15000
+  max_concurrent: 5
