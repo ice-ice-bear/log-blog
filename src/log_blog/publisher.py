@@ -47,13 +47,13 @@ def publish_post(content: str, filename: str, config: Config, push: bool = False
     # Git add and commit
     subprocess.run(["git", "add", str(post_path)], cwd=repo_path, check=True)
 
-    date_part = filename.replace("-tech-log.md", "")
+    commit_msg = f"Add tech log: {filename}"
     subprocess.run(
-        ["git", "commit", "-m", f"Add tech log for {date_part}"],
+        ["git", "commit", "-m", commit_msg],
         cwd=repo_path,
         check=True,
     )
-    print(f"Committed: Add tech log for {date_part}")
+    print(f"Committed: {commit_msg}")
 
     if push:
         subprocess.run(["git", "push"], cwd=repo_path, check=True)

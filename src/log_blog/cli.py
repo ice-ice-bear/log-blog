@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -10,7 +11,7 @@ from rich.table import Table
 from .config import load_config
 from .content_fetcher import fetch_pages
 from .history_reader import read_history
-from .post_generator import generate_post, post_filename
+from .post_generator import post_filename
 from .publisher import publish_post, pull_latest
 
 console = Console()
@@ -96,55 +97,25 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
-def cmd_generate(args: argparse.Namespace) -> None:
-    """Run the full pipeline: extract -> fetch -> generate -> publish."""
+def cmd_publish(args: argparse.Namespace) -> None:
+    """Publish a markdown file to the blog repo."""
     config = load_config(args.config)
-    if args.hours:
-        config.time_range_hours = args.hours
+    file_path = Path(args.file)
 
-    # Step 1: Extract history
-    console.print("[blue]Step 1: Extracting browsing history...[/blue]")
-    entries = read_history(config)
-    if not entries:
-        console.print("[yellow]No history entries found. Exiting.[/yellow]")
-        return
+    if not file_path.exists():
+        console.print(f"[red]File not found: {file_path}[/red]")
+        sys.exit(1)
 
-    console.print(f"Found {len(entries)} entries")
+    content = file_path.read_text(encoding="utf-8")
+    filename = args.filename or post_filename()
 
-    # Step 2: Output for Claude to classify (when used via skill)
-    # In standalone mode, use all entries
-    entry_dicts = [{"url": e.url, "title": e.title} for e in entries]
+    console.print(f"[blue]Publishing {filename} to blog repo...[/blue]")
+    pull_latest(config)
+    post_path = publish_post(content, filename, config, push=args.push)
+    console.print(f"[green]Published to {post_path}[/green]")
 
-    # Step 3: Fetch content
-    urls = [e.url for e in entries[:20]]  # Limit to top 20
-    console.print(f"\n[blue]Step 2: Fetching content from {len(urls)} pages...[/blue]")
-    contents = fetch_pages(urls, config)
-    successful = [c for c in contents if c.success]
-    console.print(f"Successfully fetched {len(successful)}/{len(urls)} pages")
-
-    # Step 4: Generate post
-    console.print("\n[blue]Step 3: Generating post...[/blue]")
-    language = config.blog.language if config.blog.language != "auto" else "en"
-    post_content = generate_post(
-        entries=entry_dicts[:20],
-        contents=contents,
-        tags=["browsing-log"],
-        language=language,
-    )
-
-    filename = post_filename()
-    console.print(f"Generated post: {filename}")
-
-    # Step 5: Publish
-    if args.publish:
-        console.print("\n[blue]Step 4: Publishing...[/blue]")
-        pull_latest(config)
-        post_path = publish_post(post_content, filename, config, push=args.push)
-        console.print(f"[green]Published to {post_path}[/green]")
-    else:
-        # Just print the post
-        console.print("\n[yellow]--- Generated Post (use --publish to save) ---[/yellow]\n")
-        print(post_content)
+    if not args.push:
+        console.print("[yellow]Post committed locally. Use --push to push to remote, or run 'git push' in the blog repo.[/yellow]")
 
 
 def main() -> None:
@@ -164,12 +135,12 @@ def main() -> None:
     p_fetch.add_argument("--json", action="store_true", help="Output as JSON")
     p_fetch.set_defaults(func=cmd_fetch)
 
-    # generate
-    p_gen = subparsers.add_parser("generate", help="Full pipeline: extract -> generate -> publish")
-    p_gen.add_argument("--hours", type=int, help="Override time range (hours)")
-    p_gen.add_argument("--publish", action="store_true", help="Save and commit the post")
-    p_gen.add_argument("--push", action="store_true", help="Push after committing")
-    p_gen.set_defaults(func=cmd_generate)
+    # publish
+    p_pub = subparsers.add_parser("publish", help="Publish a markdown file to the blog repo")
+    p_pub.add_argument("file", help="Path to the markdown file to publish")
+    p_pub.add_argument("--filename", help="Override output filename (default: YYYY-MM-DD-tech-log.md)")
+    p_pub.add_argument("--push", action="store_true", help="Push to remote after committing")
+    p_pub.set_defaults(func=cmd_publish)
 
     args = parser.parse_args()
     args.func(args)
