@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from .config import Config
@@ -24,7 +25,13 @@ def pull_latest(config: Config) -> None:
     subprocess.run(["git", "pull"], cwd=repo_path, check=True)
 
 
-def publish_post(content: str, filename: str, config: Config, push: bool = False) -> Path:
+def publish_post(
+    content: str,
+    filename: str,
+    config: Config,
+    push: bool = False,
+    update: bool = False,
+) -> Path:
     """Write a post file to the blog repo, commit, and optionally push.
 
     Args:
@@ -32,6 +39,7 @@ def publish_post(content: str, filename: str, config: Config, push: bool = False
         filename: The filename (e.g., "2026-02-19-tech-log.md").
         config: Application config.
         push: Whether to git push after committing.
+        update: Whether this is an update to an existing post (changes commit message).
 
     Returns:
         Path to the written file.
@@ -41,13 +49,22 @@ def publish_post(content: str, filename: str, config: Config, push: bool = False
     content_dir.mkdir(parents=True, exist_ok=True)
 
     post_path = content_dir / filename
+
+    if update and not post_path.exists():
+        print(
+            f"Warning: --update specified but '{filename}' does not exist in the blog repo; "
+            "creating a new file instead.",
+            file=sys.stderr,
+        )
+
     post_path.write_text(content, encoding="utf-8")
     print(f"Wrote post to {post_path}")
 
     # Git add and commit
     subprocess.run(["git", "add", str(post_path)], cwd=repo_path, check=True)
 
-    commit_msg = f"Add tech log: {filename}"
+    verb = "Update" if update else "Add"
+    commit_msg = f"{verb} tech log: {filename}"
     subprocess.run(
         ["git", "commit", "-m", commit_msg],
         cwd=repo_path,
