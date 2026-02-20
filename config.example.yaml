@@ -1,5 +1,10 @@
 chrome:
+  # Option A — filter by folder name (classic):
   profiles: ["Default"]
+  # Option B — filter by Google account email (recommended, human-readable):
+  # google_accounts: ["work@company.com", "personal@gmail.com"]
+  # If google_accounts is set it overrides profiles.
+  # Run 'uv run log-blog profiles' to see all profiles and their emails.
   history_db_base: "~/Library/Application Support/Google/Chrome"
 
 time_range_hours: 24
@@ -14,3 +19,37 @@ playwright:
   headless: true
   timeout_ms: 15000
   max_concurrent: 5
+
+# Account credentials for enriched content fetching.
+# Tokens support ${ENV_VAR} syntax — the actual secret is read from your shell environment
+# at runtime, so config.yaml itself never contains raw credentials.
+#
+# Recommended setup: add to ~/.zshrc or ~/.bash_profile:
+#   export BITBUCKET_APP_PASSWORD="your-app-password"
+accounts:
+  github:
+    # Optional. Only needed if you have multiple GitHub accounts in gh CLI.
+    # Run 'gh auth status' to see available profiles.
+    # If set, runs 'gh auth switch --user {profile}' before every GitHub fetch.
+    profile: ""
+
+  bitbucket:
+    username: ""         # Your Bitbucket username (e.g. "myuser")
+    token: "${BITBUCKET_APP_PASSWORD}"  # App Password from bitbucket.org → Settings → App passwords
+
+  # Per-service AI chat settings.
+  # auth_profile: Google account email whose Chrome session cookies are borrowed
+  #               to bypass login. Must match one of chrome.google_accounts.
+  #               Leave empty ("") to fall back to unauthenticated Playwright.
+  # enabled: false skips the service entirely (its URLs won't be fetched at all).
+  # Run 'uv run log-blog profiles' to see available emails.
+  ai_chats:
+    perplexity:
+      auth_profile: ""   # e.g. "wildboar7693@gmail.com"
+      enabled: true
+    chatgpt:
+      auth_profile: ""   # e.g. "wildboar7693@gmail.com"
+      enabled: true
+    claude:
+      auth_profile: ""   # e.g. "seungryul@wisdomgraph.ai"
+      enabled: true
