@@ -55,6 +55,38 @@ This grouping helps you plan the blog post structure and prioritize which entrie
 
 ---
 
+## Step 2.5: Scan Existing Posts (You — Claude — Do This)
+
+Before presenting to the user, scan existing blog posts so you can recommend the right post action:
+
+```bash
+uv run log-blog scan --json --limit 30
+```
+
+This returns an array of `{filename, path, title, date, tags, categories, content_preview}` for the most recent posts.
+
+**Compare today's classified tech URLs (their topics/technologies) against existing posts:**
+
+### Decide one of three actions:
+
+**`new`** — Default. Create a fresh post dated today.
+- Conditions: No existing post covers the same primary topics, or the most recent related post is older than 14 days.
+
+**`sequential`** — Today's content continues an ongoing series started within the past 14 days.
+- Detection: Existing post(s) with heavily overlapping tags AND the current session covers the same domain (e.g., multiple days of GitHub commit activity, or a multi-day deep-dive into one framework).
+- Numbering: Find the highest existing day number and increment. Title format: `"Tech Log: YYYY-MM-DD (Day N)"` / `"기술 로그: YYYY-MM-DD (N일차)"`.
+- In the Overview section, add a brief "이전 글 / Previous Post" link to the most recent related post.
+
+**`update`** — Today's content meaningfully extends a post from the past 7 days.
+- Conditions: A recent post covers the **exact same primary topic**, and the new content adds new sections, corrections, or substantial updates (not just more links on loosely related topics).
+- Read the existing post using `cat {post.path}` to understand what's already there.
+- Extend or revise it rather than duplicating covered material.
+- When publishing: use `--filename` to write to the same file and add `--update` flag.
+
+**Surface this decision in Step 3** — tell the user your recommendation and reasoning before asking for approval.
+
+---
+
 ## Step 3: Present to User for Approval
 
 Show the user a numbered list, grouped by type:
@@ -71,7 +103,12 @@ Show the user a numbered list, grouped by type:
 **Filtered out:**
 - [Title](url)
 
-Ask: *"Want to add/remove any entries before I fetch content?"*
+Also state your **post action recommendation** from Step 2.5:
+
+> **Post action**: `new` / `sequential (Day N)` / `update (existing-filename.md)`
+> *Reason: [one sentence explanation]*
+
+Ask: *"Want to add/remove any entries, or change the post action before I fetch content?"*
 
 **Wait for explicit approval before proceeding.**
 
@@ -85,11 +122,45 @@ Take the approved URLs and run:
 uv run log-blog fetch --json "URL1" "URL2" "URL3"
 ```
 
+### AI chat content — two paths
+
+**Online path** (automatic when `accounts.ai_chats.{service}.auth_profile` is set in config.yaml):
+Perplexity search, ChatGPT chat/share, and Claude.ai chat URLs are auto-detected in history and fetched using the user's Chrome session cookies. Pass them to `fetch` normally — no extra steps.
+
+Each service is configured independently:
+```yaml
+accounts:
+  ai_chats:
+    perplexity:
+      auth_profile: "your-google-email@gmail.com"  # Chrome account that's logged into perplexity.ai
+      enabled: true
+    chatgpt:
+      auth_profile: "your-google-email@gmail.com"  # Chrome account that's logged into chat.openai.com
+      enabled: true
+    claude:
+      auth_profile: "your-work-email@company.com"  # Chrome account that's logged into claude.ai
+      enabled: true
+```
+Run `uv run log-blog profiles` to see available Chrome profile emails. Leave `auth_profile` empty to fall back to unauthenticated Playwright (will hit login wall). Set `enabled: false` to skip a service entirely.
+
+**Offline path** (manual, for Gemini or when auth_profile is not configured):
+```bash
+uv run log-blog import-ai ~/Downloads/conversations.json --json --days 7
+# or for Gemini Takeout directory:
+uv run log-blog import-ai ~/Downloads/Takeout/ --json --days 7
+```
+Output matches `fetch --json` schema. Include it alongside fetch results when writing the post.
+Export instructions: ChatGPT → Settings → Data Controls → Export | Claude → Settings → Export data | Gemini → takeout.google.com
+
 The `fetch` command returns enriched data based on URL type:
 - **YouTube**: Full transcript text (Korean preferred, then English)
 - **GitHub repos**: Description, stars, languages, README content, recent commits
 - **GitHub PRs**: Title, state, body, diff stats (+/-/files), comments
 - **GitHub issues**: Title, state, labels, body, comments
+- **Bitbucket repos**: Description, language, README content (uses App Password from `config.yaml` if configured)
+- **Bitbucket PRs**: Title, state, author, source/destination branch, description
+- **AI chats (online)**: `url_type` = `ai_chat_perplexity` / `ai_chat_chatgpt` / `ai_chat_claude`, `metadata.source` = `"online"`, conversation Q&A transcript
+- **AI chats (offline)**: `url_type` = `ai_chat_export`, `metadata.source` = `"offline"`, `metadata.service` = `"chatgpt"` / `"claude"` / `"gemini"`
 - **Web pages**: Full text with headings hierarchy and code blocks
 
 Each result includes `url_type` and `metadata` fields with structured data.
@@ -170,6 +241,16 @@ Remaining entries as a bullet list:
 - Summarize the discussion and any proposed solutions
 - Note how it relates to the broader project
 
+**Bitbucket repos:**
+- Analyze the README and language for architecture clues (same depth as GitHub repos)
+- Note whether it's private — this signals internal/work tooling context
+- If the README is sparse, note what the project likely does based on the name and description
+
+**Bitbucket PRs:**
+- Explain the problem being solved and the branch names (source → destination) for context
+- Describe the changes from the PR description
+- Note the state (OPEN / MERGED / DECLINED) and what that means for the project
+
 **Docs / Web pages:**
 - Extract and explain key concepts
 - Highlight code examples with context
@@ -177,13 +258,24 @@ Remaining entries as a bullet list:
 
 ### Enrichment Features
 
-**Mermaid diagrams**: Include when architecture or data flow is discussed. The blog supports mermaid code blocks:
+**Mermaid diagrams**: Every post MUST include at least one Mermaid diagram. Use the table below to decide which type fits each section. The blog supports mermaid code blocks:
 ````markdown
 ```mermaid
 graph TD
     A[Component] --> B[Component]
 ```
 ````
+
+| Content type | Diagram to include |
+|---|---|
+| GitHub / Bitbucket repo | `graph TD` — architecture: main components and how they connect |
+| GitHub / Bitbucket PR | `graph LR` — before → after: what the change replaced |
+| YouTube tech talk | `flowchart TD` — the speaker's main argument or concept flow |
+| AI chat (Perplexity / ChatGPT / Claude / Gemini) | `graph TD` — the question chain or reasoning flow explored |
+| Docs / tutorial | `graph TD` — the concept hierarchy or step-by-step process |
+| Multiple topics | `graph TD` — a "Today's Exploration Map" overview at the top of the post |
+
+If a section genuinely cannot support a diagram (e.g., a single link with no structure), skip it — but at minimum the Overview or Insights section must have a summary diagram.
 
 **Code snippets**: Include relevant code from fetched content (GitHub READMEs, PR diffs, docs examples).
 
@@ -211,17 +303,27 @@ Apply any edits the user requests. Repeat until they approve.
 
 ## Step 7: Publish
 
-Once the user approves the post, save it to a file and publish:
+Once the user approves the post, save it to a file and publish using the action decided in Step 2.5:
 
 ```bash
 # Write the post to a temp file
 cat > /tmp/log-blog-post.md << 'POSTEOF'
 (paste the full markdown content here)
 POSTEOF
-
-# Publish (commit to blog repo, no push yet)
-uv run log-blog publish /tmp/log-blog-post.md
 ```
+
+**For `new` or `sequential`** — publish with the new date-based filename:
+```bash
+uv run log-blog publish /tmp/log-blog-post.md
+# For sequential, override the title via --filename if needed:
+# uv run log-blog publish /tmp/log-blog-post.md --filename 2026-02-20-tech-log.md
+```
+
+**For `update`** — overwrite the existing post file with the updated content:
+```bash
+uv run log-blog publish /tmp/log-blog-post.md --filename EXISTING-FILENAME.md --update
+```
+The `--update` flag changes the commit message to `"Update tech log: ..."`.
 
 Then ask the user: *"Post committed locally. Push to GitHub to deploy?"*
 
@@ -238,5 +340,5 @@ git -C "$(uv run python -c "from log_blog.config import load_config; c = load_co
 - If fetching fails for some URLs, skip them and note it
 - The user may want a specific angle or theme — ask before writing if the topics are diverse
 - For Korean posts, use Korean section headers: 개요, 빠른 링크, 인사이트
-- Use Mermaid diagrams for any topic involving architecture, pipelines, or data flow
+- Every post needs at least one Mermaid diagram — see the diagram table in Step 5 for which type fits each section
 - For GitHub repos, consider running extra `gh` commands to get file trees or specific files for deeper analysis
