@@ -12,6 +12,50 @@ from .url_classifier import GitHubUrl, UrlType, parse_github_url
 logger = logging.getLogger(__name__)
 
 
+def get_current_gh_user() -> str | None:
+    """Return the currently active gh CLI username, or None on failure."""
+    try:
+        result = subprocess.run(
+            ["gh", "api", "user", "--jq", ".login"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def switch_github_profile(profile: str) -> bool:
+    """Switch the active gh CLI account to the specified profile.
+
+    Returns True on success, False if the switch failed (fetch will still proceed
+    with whatever account is currently active).
+    """
+    if not profile:
+        return True
+    logger.info("Switching gh profile to '%s'", profile)
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "switch", "--user", profile],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            logger.warning("gh auth switch --user %s failed: %s", profile, result.stderr[:200])
+            return False
+        return True
+    except FileNotFoundError:
+        logger.warning("gh CLI not found; cannot switch profile")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning("gh auth switch timed out")
+        return False
+
+
 def fetch_github_content(url: str, url_type: UrlType) -> dict | None:
     """Fetch GitHub content based on URL type.
 
