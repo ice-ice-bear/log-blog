@@ -70,19 +70,6 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     console.print(f"[blue]Fetching {len(urls)} page(s)...[/blue]")
     results = fetch_pages(urls, config)
 
-    for result in results:
-        if result.success:
-            console.print(f"\n[green]--- {result.title} ---[/green]")
-            console.print(f"URL: {result.url}")
-            # Print first 500 chars of content
-            preview = result.text_content[:500]
-            console.print(preview)
-            if len(result.text_content) > 500:
-                console.print(f"[dim]... ({len(result.text_content)} chars total)[/dim]")
-        else:
-            console.print(f"\n[red]FAILED: {result.url}[/red]")
-            console.print(f"  Error: {result.error}")
-
     if args.json:
         data = [
             {
@@ -91,10 +78,26 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 "text_content": r.text_content,
                 "success": r.success,
                 "error": r.error,
+                "url_type": r.url_type,
+                "metadata": r.metadata,
             }
             for r in results
         ]
         print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+
+    for result in results:
+        if result.success:
+            type_tag = f"[cyan][{result.url_type}][/cyan] " if result.url_type != "web_page" else ""
+            console.print(f"\n{type_tag}[green]--- {result.title} ---[/green]")
+            console.print(f"URL: {result.url}")
+            preview = result.text_content[:500]
+            console.print(preview)
+            if len(result.text_content) > 500:
+                console.print(f"[dim]... ({len(result.text_content)} chars total)[/dim]")
+        else:
+            console.print(f"\n[red]FAILED: {result.url}[/red]")
+            console.print(f"  Error: {result.error}")
 
 
 def cmd_publish(args: argparse.Namespace) -> None:
