@@ -15,6 +15,9 @@ class UrlType(str, Enum):
     GITHUB_OTHER = "github_other"
     BITBUCKET_REPO = "bitbucket_repo"
     BITBUCKET_PR = "bitbucket_pr"
+    AI_CHAT_PERPLEXITY = "ai_chat_perplexity"
+    AI_CHAT_CHATGPT = "ai_chat_chatgpt"
+    AI_CHAT_CLAUDE = "ai_chat_claude"
     DOCS_PAGE = "docs_page"
     WEB_PAGE = "web_page"
 
@@ -24,6 +27,13 @@ class GitHubUrl:
     owner: str
     repo: str
     number: int | None = None
+
+
+@dataclass
+class BitbucketUrl:
+    workspace: str
+    repo_slug: str
+    pr_number: int | None = None
 
 
 # YouTube patterns
@@ -39,7 +49,12 @@ _GH_OTHER = re.compile(r"github\.com/([^/]+)/([^/]+)")
 
 # Bitbucket patterns
 _BB_PR = re.compile(r"bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)")
-_BB_REPO = re.compile(r"bitbucket\.org/([^/]+)/([^/]+?)/?$")
+_BB_REPO = re.compile(r"bitbucket\.org/([^/]+)/([^/]+?)/?(?:[?#]|$)")
+
+# AI chat patterns — per-conversation URLs only (not landing pages like /app)
+_PERPLEXITY_SEARCH = re.compile(r"perplexity\.ai/search/[^?#/]+")
+_CHATGPT_CHAT = re.compile(r"chat\.openai\.com/(?:c|share)/[a-z0-9-]+")
+_CLAUDE_CHAT = re.compile(r"claude\.ai/chat/[a-z0-9-]+")
 
 # Docs patterns
 _DOCS = re.compile(
@@ -69,6 +84,14 @@ def classify_url(url: str) -> UrlType:
             return UrlType.GITHUB_OTHER
         return UrlType.WEB_PAGE
 
+    # AI chat services — must match per-conversation URLs, not generic landing pages
+    if "perplexity.ai" in url and _PERPLEXITY_SEARCH.search(url):
+        return UrlType.AI_CHAT_PERPLEXITY
+    if "chat.openai.com" in url and _CHATGPT_CHAT.search(url):
+        return UrlType.AI_CHAT_CHATGPT
+    if "claude.ai" in url and _CLAUDE_CHAT.search(url):
+        return UrlType.AI_CHAT_CLAUDE
+
     # Bitbucket
     if "bitbucket.org" in url:
         if _BB_PR.search(url):
@@ -90,6 +113,17 @@ def parse_youtube_id(url: str) -> str | None:
         m = pattern.search(url)
         if m:
             return m.group(1)
+    return None
+
+
+def parse_bitbucket_url(url: str) -> BitbucketUrl | None:
+    """Extract workspace/repo_slug/pr_number from a Bitbucket URL."""
+    m = _BB_PR.search(url)
+    if m:
+        return BitbucketUrl(workspace=m.group(1), repo_slug=m.group(2), pr_number=int(m.group(3)))
+    m = _BB_REPO.search(url)
+    if m:
+        return BitbucketUrl(workspace=m.group(1), repo_slug=m.group(2))
     return None
 
 
