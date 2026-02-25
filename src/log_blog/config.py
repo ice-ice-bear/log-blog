@@ -44,8 +44,8 @@ class ChromeConfig:
 
 @dataclass
 class BlogConfig:
-    repo_path: str = "~/Documents/github/ice-ice-bear.github.io"
-    repo_url: str = "https://github.com/ice-ice-bear/ice-ice-bear.github.io.git"
+    repo_path: str = ""
+    repo_url: str = ""
     content_dir: str = "content/posts"
     language: str = "auto"
 
@@ -63,6 +63,7 @@ class PlaywrightConfig:
     headless: bool = True
     timeout_ms: int = 15000
     max_concurrent: int = 5
+    cdp_port: int = 9222  # Chrome DevTools Protocol port for AI chat fetching
 
 
 @dataclass
@@ -87,6 +88,7 @@ class AiChatConfig:
     perplexity: AiChatServiceConfig = field(default_factory=AiChatServiceConfig)
     chatgpt: AiChatServiceConfig = field(default_factory=AiChatServiceConfig)
     claude: AiChatServiceConfig = field(default_factory=AiChatServiceConfig)
+    gemini: AiChatServiceConfig = field(default_factory=AiChatServiceConfig)
 
 
 @dataclass
@@ -97,12 +99,20 @@ class AccountsConfig:
 
 
 @dataclass
+class ImagesConfig:
+    unsplash_api_key: str = ""  # supports ${ENV_VAR} syntax
+    cover_enabled: bool = True
+    taxonomy_enabled: bool = True
+
+
+@dataclass
 class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
     time_range_hours: int = 24
     blog: BlogConfig = field(default_factory=BlogConfig)
     playwright: PlaywrightConfig = field(default_factory=PlaywrightConfig)
     accounts: AccountsConfig = field(default_factory=AccountsConfig)
+    images: ImagesConfig = field(default_factory=ImagesConfig)
 
 
 def _find_config() -> Path | None:
@@ -132,6 +142,7 @@ def load_config(path: str | Path | None = None) -> Config:
     chrome_data = data.get("chrome", {})
     blog_data = data.get("blog", {})
     pw_data = data.get("playwright", {})
+    images_data = dict(data.get("images", {}) or {})
 
     accounts_raw = data.get("accounts", {}) or {}
     github_data = dict(accounts_raw.get("github", {}) or {})
@@ -152,6 +163,10 @@ def load_config(path: str | Path | None = None) -> Config:
             svc["auth_profile"] = _resolve_env_vars(str(svc["auth_profile"]))
         return AiChatServiceConfig(**svc)
 
+    # Resolve ${ENV_VAR} in image API keys
+    if "unsplash_api_key" in images_data:
+        images_data["unsplash_api_key"] = _resolve_env_vars(str(images_data["unsplash_api_key"]))
+
     return Config(
         chrome=ChromeConfig(**_filter_fields(ChromeConfig, chrome_data)),
         time_range_hours=data.get("time_range_hours", 24),
@@ -164,6 +179,8 @@ def load_config(path: str | Path | None = None) -> Config:
                 perplexity=_ai_service("perplexity"),
                 chatgpt=_ai_service("chatgpt"),
                 claude=_ai_service("claude"),
+                gemini=_ai_service("gemini"),
             ),
         ),
+        images=ImagesConfig(**_filter_fields(ImagesConfig, images_data)),
     )

@@ -10,8 +10,8 @@ chrome:
 time_range_hours: 24
 
 blog:
-  repo_path: "~/Documents/github/ice-ice-bear.github.io"
-  repo_url: "https://github.com/ice-ice-bear/ice-ice-bear.github.io.git"
+  repo_path: "~/Documents/github/your-blog-repo"  # REQUIRED: local path to your Hugo blog repo
+  repo_url: "https://github.com/your-user/your-blog-repo.git"  # Used to clone if repo_path doesn't exist
   content_dir: "content/posts"
   language: "auto"  # "auto" (detect from Chrome), "ko", "en"
 
@@ -19,6 +19,7 @@ playwright:
   headless: true
   timeout_ms: 15000
   max_concurrent: 5
+  cdp_port: 9222       # Chrome DevTools Protocol port for authenticated AI chat fetching
 
 # Account credentials for enriched content fetching.
 # Tokens support ${ENV_VAR} syntax — the actual secret is read from your shell environment
@@ -38,11 +39,11 @@ accounts:
     token: "${BITBUCKET_APP_PASSWORD}"  # App Password from bitbucket.org → Settings → App passwords
 
   # Per-service AI chat settings.
-  # auth_profile: Google account email whose Chrome session cookies are borrowed
-  #               to bypass login. Must match one of chrome.google_accounts.
+  # Authenticated fetching connects to your running Chrome via CDP (DevTools Protocol).
+  # Launch Chrome with: --remote-debugging-port=9222
+  # auth_profile: Label for the Chrome account logged into the service.
   #               Leave empty ("") to fall back to unauthenticated Playwright.
   # enabled: false skips the service entirely (its URLs won't be fetched at all).
-  # Run 'uv run log-blog profiles' to see available emails.
   ai_chats:
     perplexity:
       auth_profile: ""   # e.g. "wildboar7693@gmail.com"
@@ -53,3 +54,15 @@ accounts:
     claude:
       auth_profile: ""   # e.g. "seungryul@wisdomgraph.ai"
       enabled: true
+    gemini:
+      auth_profile: ""   # e.g. "wildboar7693@gmail.com" — Chrome account logged into gemini.google.com
+      enabled: true
+
+# Image handling for blog posts.
+# Cover images are downloaded from Unsplash; taxonomy icons from Simple Icons / Tabler Icons.
+# Recommended: add to ~/.zshrc:  export UNSPLASH_API_KEY="your-key"
+# Get a free key: https://unsplash.com/developers
+images:
+  unsplash_api_key: "${UNSPLASH_API_KEY}"
+  cover_enabled: true       # Set false to skip cover image downloading
+  taxonomy_enabled: true    # Set false to skip tag/category icon management

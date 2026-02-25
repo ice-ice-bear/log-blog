@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -69,7 +70,8 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     urls = args.urls
 
-    console.print(f"[blue]Fetching {len(urls)} page(s)...[/blue]")
+    if not args.json:
+        console.print(f"[blue]Fetching {len(urls)} page(s)...[/blue]")
     results = fetch_pages(urls, config)
 
     if args.json:
@@ -202,8 +204,140 @@ def cmd_import_ai(args: argparse.Namespace) -> None:
     console.print("[dim]Run with --json to get output compatible with the skill pipeline.[/dim]")
 
 
+def _resolve_cdp_profile(config, chrome_data: Path) -> str | None:
+    """Find the Chrome profile folder that matches the most-used auth_profile email.
+
+    Reads Chrome's Local State to map Google account emails → profile folder names,
+    then picks the profile whose email appears most often in ai_chats config.
+    """
+    # Collect all enabled auth_profile emails
+    ai = config.accounts.ai_chats
+    emails: list[str] = []
+    for svc in (ai.perplexity, ai.chatgpt, ai.claude, ai.gemini):
+        if svc.enabled and svc.auth_profile:
+            emails.append(svc.auth_profile.lower())
+
+    if not emails:
+        return None
+
+    # Find the most common email
+    from collections import Counter
+    target_email = Counter(emails).most_common(1)[0][0]
+
+    # Map email → Chrome profile folder via Local State
+    local_state_path = chrome_data / "Local State"
+    if not local_state_path.exists():
+        return None
+
+    try:
+        import json as _json
+        state = _json.loads(local_state_path.read_text(encoding="utf-8"))
+        info_cache = state.get("profile", {}).get("info_cache", {})
+        for folder, info in info_cache.items():
+            if info.get("user_name", "").lower() == target_email:
+                return folder
+    except Exception:
+        pass
+
+    return None
+
+
+def _find_chrome_binary() -> str:
+    """Find the Chrome binary path, preferring PATH lookup with macOS fallback."""
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return found
+    macos_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if Path(macos_path).exists():
+        return macos_path
+    return "google-chrome"
+
+
+def cmd_chrome_cdp(args: argparse.Namespace) -> None:
+    """Launch Chrome with CDP remote debugging using a profile copy."""
+    import subprocess
+    import tempfile
+
+    config = load_config(args.config)
+    port = args.port or config.playwright.cdp_port
+    chrome_data = Path(config.chrome.history_db_base).expanduser()
+
+    # Resolve profile: CLI flag → auto-detect from ai_chats auth_profile → "Default"
+    profile_dir = args.profile
+    if not profile_dir:
+        profile_dir = _resolve_cdp_profile(config, chrome_data)
+    if not profile_dir:
+        profile_dir = "Default"
+
+    # Create a temp directory with essential profile files
+    cdp_dir = Path(tempfile.mkdtemp(prefix="chrome-cdp-"))
+    target_profile = cdp_dir / profile_dir
+    target_profile.mkdir(parents=True, exist_ok=True)
+
+    # Copy essential files for auth sessions
+    source_profile = chrome_data / profile_dir
+    essential_files = ["Cookies", "Login Data", "Preferences", "Secure Preferences", "Web Data"]
+    for fname in essential_files:
+        src = source_profile / fname
+        if src.exists():
+            shutil.copy2(src, target_profile / fname)
+
+    # Also copy Network/Cookies if present
+    net_cookies = source_profile / "Network" / "Cookies"
+    if net_cookies.exists():
+        (target_profile / "Network").mkdir(exist_ok=True)
+        shutil.copy2(net_cookies, target_profile / "Network" / "Cookies")
+
+    # Copy parent-level Local State
+    local_state = chrome_data / "Local State"
+    if local_state.exists():
+        shutil.copy2(local_state, cdp_dir / "Local State")
+
+    console.print(f"[blue]Launching Chrome with CDP on port {port}...[/blue]")
+    console.print(f"[dim]Profile: {profile_dir} → {cdp_dir}[/dim]")
+
+    chrome_bin = _find_chrome_binary()
+    proc = subprocess.Popen(
+        [chrome_bin, f"--remote-debugging-port={port}",
+         f"--user-data-dir={cdp_dir}", f"--profile-directory={profile_dir}"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+
+    # Wait briefly and check if CDP is listening
+    import time
+    time.sleep(5)
+    if proc.poll() is not None:
+        stderr = proc.stderr.read().decode() if proc.stderr else ""
+        console.print(f"[red]Chrome exited unexpectedly.[/red]\n{stderr}")
+        sys.exit(1)
+
+    try:
+        import urllib.request
+        resp = urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=5)
+        data = json.loads(resp.read())
+        console.print(f"[green]CDP ready — Chrome {data.get('Browser', '?')}[/green]")
+        console.print(f"[dim]ws: {data.get('webSocketDebuggerUrl', '?')}[/dim]")
+    except Exception:
+        console.print("[yellow]Chrome launched but CDP endpoint not responding yet. It may need a few more seconds.[/yellow]")
+
+    console.print(f"\n[green]Chrome is running with CDP on port {port}.[/green]")
+    console.print("[dim]Run 'uv run log-blog fetch ...' in another terminal to fetch AI chat content.[/dim]")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]")
+
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        console.print("\n[yellow]Chrome stopped.[/yellow]")
+    finally:
+        shutil.rmtree(cdp_dir, ignore_errors=True)
+
+
 def cmd_publish(args: argparse.Namespace) -> None:
     """Publish a markdown file to the blog repo."""
+    from .image_handler import prepare_images
+
     config = load_config(args.config)
     file_path = Path(args.file)
 
@@ -217,7 +351,26 @@ def cmd_publish(args: argparse.Namespace) -> None:
     action = "Updating" if args.update else "Publishing"
     console.print(f"[blue]{action} {filename} in blog repo...[/blue]")
     pull_latest(config)
-    post_path = publish_post(content, filename, config, push=args.push, update=args.update)
+
+    # Prepare images (cover + taxonomy icons) unless --no-images
+    extra_paths = None
+    if not args.no_images:
+        post_slug = filename.removesuffix(".md")
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
+        categories = ["tech-log"]
+        cover_query = args.cover_query or ""
+
+        if tags or cover_query:
+            console.print("[blue]Preparing images...[/blue]")
+            assets = prepare_images(post_slug, tags, categories, cover_query, config)
+            extra_paths = assets.all_new_paths
+            if extra_paths:
+                console.print(f"[green]{len(extra_paths)} image file(s) ready[/green]")
+
+    post_path = publish_post(
+        content, filename, config,
+        push=args.push, update=args.update, extra_paths=extra_paths,
+    )
     console.print(f"[green]{'Updated' if args.update else 'Published'} to {post_path}[/green]")
 
     if not args.push:
@@ -259,12 +412,21 @@ def main() -> None:
     p_import.add_argument("--json", action="store_true", help="Output as JSON (compatible with fetch output)")
     p_import.set_defaults(func=cmd_import_ai)
 
+    # chrome-cdp
+    p_cdp = subparsers.add_parser("chrome-cdp", help="Launch Chrome with CDP remote debugging for authenticated AI chat fetching")
+    p_cdp.add_argument("--port", type=int, help="CDP port (default: from config, usually 9222)")
+    p_cdp.add_argument("--profile", help="Chrome profile folder name (default: 'Default')")
+    p_cdp.set_defaults(func=cmd_chrome_cdp)
+
     # publish
     p_pub = subparsers.add_parser("publish", help="Publish a markdown file to the blog repo")
     p_pub.add_argument("file", help="Path to the markdown file to publish")
     p_pub.add_argument("--filename", help="Override output filename (default: YYYY-MM-DD-tech-log.md)")
     p_pub.add_argument("--push", action="store_true", help="Push to remote after committing")
     p_pub.add_argument("--update", action="store_true", help="Update an existing post (changes commit message)")
+    p_pub.add_argument("--cover-query", help="Search terms for cover image (e.g., 'python programming')")
+    p_pub.add_argument("--tags", help="Comma-separated tags for taxonomy icon ensuring (e.g., 'python,fastapi')")
+    p_pub.add_argument("--no-images", action="store_true", help="Skip cover image and taxonomy icon handling")
     p_pub.set_defaults(func=cmd_publish)
 
     args = parser.parse_args()
