@@ -15,6 +15,7 @@ def generate_post(
     highlights: list[dict] | None = None,
     quick_links: list[dict] | None = None,
     insights: str = "",
+    image: str = "",
 ) -> str:
     """Generate a Hugo-compatible markdown blog post.
 
@@ -32,6 +33,7 @@ def generate_post(
         highlights: List of {"url", "title", "summary"} for top items.
         quick_links: List of {"url", "title", "description"} for remaining items.
         insights: AI-generated insights/reflection text.
+        image: Hugo-relative URL for the cover image (e.g., "/images/posts/slug/cover.jpg").
     """
     if post_date is None:
         post_date = date.today()
@@ -39,10 +41,12 @@ def generate_post(
     date_str = post_date.isoformat()
     tags_str = ", ".join(f'"{t}"' for t in tags)
 
-    # Build frontmatter
+    # Build frontmatter (image first to match existing blog convention)
     title = f"Tech Log: {date_str}" if language == "en" else f"기술 로그: {date_str}"
-    lines = [
-        "---",
+    lines = ["---"]
+    if image:
+        lines.append(f'image: "{image}"')
+    lines.extend([
         f'title: "{title}"',
         f"date: {date_str}",
         'categories: ["tech-log"]',
@@ -51,7 +55,7 @@ def generate_post(
         "math: false",
         "---",
         "",
-    ]
+    ])
 
     # Introduction
     if introduction:
