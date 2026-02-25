@@ -49,9 +49,11 @@ def _chrome_time_to_unix(chrome_time: int) -> float:
 
 def _copy_history_db(db_path: Path) -> Path:
     """Copy the Chrome History DB to a temp file to avoid lock issues."""
-    tmp = tempfile.mktemp(suffix=".db")
+    fd = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    fd.close()
+    tmp = Path(fd.name)
     shutil.copy2(db_path, tmp)
-    return Path(tmp)
+    return tmp
 
 
 def list_chrome_profiles(config: Config) -> list[dict]:
