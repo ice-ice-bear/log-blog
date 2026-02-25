@@ -15,6 +15,9 @@ uv run log-blog extract --hours 48 --json
 uv run log-blog fetch https://example.com --json
 uv run log-blog publish post.md --push
 
+# Launch Chrome with CDP for authenticated AI chat fetching
+uv run log-blog chrome-cdp
+
 # Run with a specific config file
 uv run log-blog --config /path/to/config.yaml extract
 ```
@@ -46,7 +49,7 @@ Chrome SQLite DB → history_reader → list[HistoryEntry]
 
 ### Key modules
 
-- **`url_classifier.py`** — Regex-based dispatch table. Classifies a URL into `UrlType` enum (YouTube, GitHub repo/PR/issue, Bitbucket, docs page, web page). This determines which fetcher is used.
+- **`url_classifier.py`** — Regex-based dispatch table. Classifies a URL into `UrlType` enum (YouTube, GitHub repo/PR/issue, Bitbucket, AI chats, docs page, web page). This determines which fetcher is used.
 - **`content_fetcher.py`** — Orchestrates fetching. Calls specialized fetchers first; falls back to Playwright for all others. Uses `asyncio.Semaphore` for concurrency control. Returns `list[PageContent]`.
 - **`PageContent`** dataclass — The universal return type from all fetchers: `url`, `title`, `text_content`, `success`, `error`, `url_type`, `metadata`.
 - **`github_fetcher.py`** — Uses the `gh` CLI (must be authenticated). Fetches repo metadata + README, PR details, or issue details. Returns a structured dict, then `content_fetcher` converts it to `PageContent`.
@@ -62,6 +65,7 @@ Copy `config.example.yaml` → `config.yaml`. Key fields:
 - `blog.repo_path` — local path to the Hugo blog repo (cloned automatically if missing)
 - `blog.language` — `"auto"`, `"ko"`, or `"en"`
 - `playwright.max_concurrent` — controls how many browser pages run in parallel
+- `playwright.cdp_port` — Chrome DevTools Protocol port for authenticated AI chat fetching (default: 9222)
 
 ### External dependencies
 

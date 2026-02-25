@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class UrlType(str, Enum):
@@ -18,6 +21,7 @@ class UrlType(str, Enum):
     AI_CHAT_PERPLEXITY = "ai_chat_perplexity"
     AI_CHAT_CHATGPT = "ai_chat_chatgpt"
     AI_CHAT_CLAUDE = "ai_chat_claude"
+    AI_CHAT_GEMINI = "ai_chat_gemini"
     DOCS_PAGE = "docs_page"
     WEB_PAGE = "web_page"
 
@@ -51,10 +55,28 @@ _GH_OTHER = re.compile(r"github\.com/([^/]+)/([^/]+)")
 _BB_PR = re.compile(r"bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)")
 _BB_REPO = re.compile(r"bitbucket\.org/([^/]+)/([^/]+?)/?(?:[?#]|$)")
 
-# AI chat patterns — per-conversation URLs only (not landing pages like /app)
-_PERPLEXITY_SEARCH = re.compile(r"perplexity\.ai/search/[^?#/]+")
-_CHATGPT_CHAT = re.compile(r"chat\.openai\.com/(?:c|share)/[a-z0-9-]+")
-_CLAUDE_CHAT = re.compile(r"claude\.ai/chat/[a-z0-9-]+")
+# AI chat patterns — per-conversation URLs only (not landing pages)
+# Verified: 2026-02-25
+_PERPLEXITY = re.compile(
+    r"perplexity\.ai/search/[^?#/]+"      # perplexity.ai/search/{query-or-uuid}
+    r"|perplexity\.ai/page/[^?#/]+"       # perplexity.ai/page/{id} (Perplexity Pages)
+)
+# Verified: 2026-02-25 — ChatGPT migrated from chat.openai.com → chatgpt.com (2024)
+_CHATGPT = re.compile(
+    r"chatgpt\.com/(?:c|share|g)/[a-zA-Z0-9_-]+"   # chatgpt.com/c/{id}, /share/{id}, /g/{gpt-id}
+    r"|chat\.openai\.com/(?:c|share)/[a-zA-Z0-9-]+" # legacy domain (redirects but still in history DBs)
+)
+# Verified: 2026-02-25
+_CLAUDE = re.compile(
+    r"claude\.ai/chat/[a-zA-Z0-9-]+"      # claude.ai/chat/{uuid}
+)
+# Verified: 2026-02-25
+_GEMINI = re.compile(
+    r"gemini\.google\.com/app/[a-zA-Z0-9]+" # gemini.google.com/app/{conversation-id}
+)
+
+# Known AI service domains for unmatched-URL warning (landing pages, settings, etc.)
+_AI_CHAT_DOMAINS = ("perplexity.ai", "chatgpt.com", "chat.openai.com", "claude.ai", "gemini.google.com")
 
 # Docs patterns
 _DOCS = re.compile(
@@ -85,12 +107,22 @@ def classify_url(url: str) -> UrlType:
         return UrlType.WEB_PAGE
 
     # AI chat services — must match per-conversation URLs, not generic landing pages
-    if "perplexity.ai" in url and _PERPLEXITY_SEARCH.search(url):
-        return UrlType.AI_CHAT_PERPLEXITY
-    if "chat.openai.com" in url and _CHATGPT_CHAT.search(url):
-        return UrlType.AI_CHAT_CHATGPT
-    if "claude.ai" in url and _CLAUDE_CHAT.search(url):
-        return UrlType.AI_CHAT_CLAUDE
+    if "perplexity.ai" in url:
+        if _PERPLEXITY.search(url):
+            return UrlType.AI_CHAT_PERPLEXITY
+        _warn_unmatched_ai(url, "perplexity")
+    if "chatgpt.com" in url or "chat.openai.com" in url:
+        if _CHATGPT.search(url):
+            return UrlType.AI_CHAT_CHATGPT
+        _warn_unmatched_ai(url, "chatgpt")
+    if "claude.ai" in url:
+        if _CLAUDE.search(url):
+            return UrlType.AI_CHAT_CLAUDE
+        _warn_unmatched_ai(url, "claude")
+    if "gemini.google.com" in url:
+        if _GEMINI.search(url):
+            return UrlType.AI_CHAT_GEMINI
+        _warn_unmatched_ai(url, "gemini")
 
     # Bitbucket
     if "bitbucket.org" in url:
@@ -143,3 +175,22 @@ def parse_github_url(url: str) -> GitHubUrl | None:
         return GitHubUrl(owner=m.group(1), repo=m.group(2))
 
     return None
+
+
+_warned_urls: set[str] = set()
+
+
+def _warn_unmatched_ai(url: str, service: str) -> None:
+    """Log a warning when an AI service domain is seen but the URL pattern didn't match.
+
+    This catches landing pages, settings pages, and new URL patterns that haven't
+    been added to the regex yet. Deduplicates to avoid log spam.
+    """
+    if url in _warned_urls:
+        return
+    _warned_urls.add(url)
+    logger.warning(
+        "AI chat URL from %s not matched by conversation pattern (classified as web_page): %s",
+        service,
+        url,
+    )

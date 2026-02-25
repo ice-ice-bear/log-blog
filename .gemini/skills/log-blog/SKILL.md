@@ -21,9 +21,11 @@ uv sync && uv run playwright install chromium
 ```
 
 If `config.yaml` doesn't exist:
+
 ```bash
 cp config.example.yaml config.yaml
 ```
+
 Then remind the user to edit `config.yaml` and set their `blog.repo_path` and `blog.repo_url`.
 
 ---
@@ -47,6 +49,7 @@ Read the JSON output and split entries into **tech** vs **non-tech**.
 **Non-tech** = social media, shopping, banking, email, entertainment, generic search result pages.
 
 **Group classified entries by URL type:**
+
 - **YouTube** — video URLs (youtube.com, youtu.be)
 - **GitHub** — repos, PRs, issues
 - **Docs/Web** — documentation sites, blog posts, other web pages
@@ -67,17 +70,20 @@ This returns an array of `{filename, path, title, date, tags, categories, conten
 
 **Compare today's classified tech URLs (their topics/technologies) against existing posts:**
 
-### Decide one of three actions:
+### Decide one of three actions
 
 **`new`** — Default. Create a fresh post dated today.
+
 - Conditions: No existing post covers the same primary topics, or the most recent related post is older than 14 days.
 
 **`sequential`** — Today's content continues an ongoing series started within the past 14 days.
+
 - Detection: Existing post(s) with heavily overlapping tags AND the current session covers the same domain (e.g., multiple days of GitHub commit activity, or a multi-day deep-dive into one framework).
 - Numbering: Find the highest existing day number and increment. Title format: `"Tech Log: YYYY-MM-DD (Day N)"` / `"기술 로그: YYYY-MM-DD (N일차)"`.
 - In the Overview section, add a brief "이전 글 / Previous Post" link to the most recent related post.
 
 **`update`** — Today's content meaningfully extends a post from the past 7 days.
+
 - Conditions: A recent post covers the **exact same primary topic**, and the new content adds new sections, corrections, or substantial updates (not just more links on loosely related topics).
 - Read the existing post using `cat {post.path}` to understand what's already there.
 - Extend or revise it rather than duplicating covered material.
@@ -92,6 +98,7 @@ This returns an array of `{filename, path, title, date, tags, categories, conten
 Show the user a numbered list, grouped by type:
 
 **YouTube:**
+
 1. [Title](url)
 
 **GitHub:**
@@ -101,6 +108,7 @@ Show the user a numbered list, grouped by type:
 3. [Title](url)
 
 **Filtered out:**
+
 - [Title](url)
 
 Also state your **post action recommendation** from Step 2.5:
@@ -124,64 +132,36 @@ uv run log-blog fetch --json "URL1" "URL2" "URL3"
 
 ### AI chat content — two paths
 
-**Online path** (automatic when `accounts.ai_chats.{service}.auth_profile` is set in config.yaml):
-Perplexity search, ChatGPT (chatgpt.com + legacy chat.openai.com), Claude.ai, and Gemini (gemini.google.com) chat URLs are auto-detected in history and fetched via Chrome DevTools Protocol (CDP). Pass them to `fetch` normally — no extra steps.
+**Online path** (automatic when `playwright.auth_profile` is set in config.yaml):
+Perplexity search, ChatGPT chat/share, and Claude.ai chat URLs are auto-detected in history and fetched using the user's Chrome session cookies. Pass them to `fetch` normally — no extra steps.
 
-**Prerequisite**: Chrome must be running with remote debugging enabled. Chrome v130+ requires a non-default `--user-data-dir` for CDP, so launch it with a copy of the real profile:
+**Offline path** (manual, for Gemini or when auth_profile is not configured):
 
-```bash
-uv run log-blog chrome-cdp
-```
-
-This copies essential profile files (Cookies, Login Data, etc.) to a temp directory and launches Chrome with `--remote-debugging-port=9222`. The user's auth sessions are preserved because Chrome decrypts the copied cookies via Keychain.
-
-The CDP port is configured in `config.yaml` → `playwright.cdp_port` (default: 9222). When Chrome is running with this flag, Playwright connects to the live browser session — no manual Keychain password entry needed.
-
-Each service is configured independently:
-```yaml
-playwright:
-  cdp_port: 9222  # Must match --remote-debugging-port
-
-accounts:
-  ai_chats:
-    perplexity:
-      auth_profile: "your-google-email@gmail.com"  # Label for the Chrome account logged into perplexity.ai
-      enabled: true
-    chatgpt:
-      auth_profile: "your-google-email@gmail.com"  # Label for the Chrome account logged into chatgpt.com
-      enabled: true
-    claude:
-      auth_profile: "your-work-email@company.com"  # Label for the Chrome account logged into claude.ai
-      enabled: true
-    gemini:
-      auth_profile: "your-google-email@gmail.com"  # Label for the Chrome account logged into gemini.google.com
-      enabled: true
-```
-Leave `auth_profile` empty to fall back to unauthenticated Playwright (will hit login wall). Set `enabled: false` to skip a service entirely. If CDP connection fails (Chrome not running with the flag), it automatically falls back to a headless browser.
-
-**Offline path** (manual, when auth_profile is not configured or export is preferred):
 ```bash
 uv run log-blog import-ai ~/Downloads/conversations.json --json --days 7
 # or for Gemini Takeout directory:
 uv run log-blog import-ai ~/Downloads/Takeout/ --json --days 7
 ```
+
 Output matches `fetch --json` schema. Include it alongside fetch results when writing the post.
 Export instructions: ChatGPT → Settings → Data Controls → Export | Claude → Settings → Export data | Gemini → takeout.google.com
 
 The `fetch` command returns enriched data based on URL type:
+
 - **YouTube**: Full transcript text (Korean preferred, then English)
 - **GitHub repos**: Description, stars, languages, README content, recent commits
 - **GitHub PRs**: Title, state, body, diff stats (+/-/files), comments
 - **GitHub issues**: Title, state, labels, body, comments
 - **Bitbucket repos**: Description, language, README content (uses App Password from `config.yaml` if configured)
 - **Bitbucket PRs**: Title, state, author, source/destination branch, description
-- **AI chats (online)**: `url_type` = `ai_chat_perplexity` / `ai_chat_chatgpt` / `ai_chat_claude` / `ai_chat_gemini`, `metadata.source` = `"online"`, conversation Q&A transcript
+- **AI chats (online)**: `url_type` = `ai_chat_perplexity` / `ai_chat_chatgpt` / `ai_chat_claude`, `metadata.source` = `"online"`, conversation Q&A transcript
 - **AI chats (offline)**: `url_type` = `ai_chat_export`, `metadata.source` = `"offline"`, `metadata.service` = `"chatgpt"` / `"claude"` / `"gemini"`
 - **Web pages**: Full text with headings hierarchy and code blocks
 
 Each result includes `url_type` and `metadata` fields with structured data.
 
 **For deeper GitHub analysis**, you can run additional `gh` CLI commands:
+
 ```bash
 # View full PR diff
 gh pr diff 123 --repo owner/repo
@@ -205,7 +185,6 @@ Using the fetched content, write a Hugo markdown post. This should be a **deep-d
 
 ```markdown
 ---
-image: "/images/posts/YYYY-MM-DD-tech-log/cover.jpg"
 title: "Tech Log: YYYY-MM-DD"
 date: YYYY-MM-DD
 categories: ["tech-log"]
@@ -236,39 +215,46 @@ Remaining entries as a bullet list:
 ### Writing Guidelines by URL Type
 
 **YouTube videos:**
+
 - Summarize the speaker's key arguments and technical points from the transcript
 - Quote notable statements (translate to post language if needed)
 - Highlight specific techniques, tools, or concepts discussed
 - Note timestamps for key sections if the transcript reveals structure
 
 **GitHub repositories:**
+
 - Analyze the architecture based on README, languages, and file structure
 - Highlight interesting design patterns or technical decisions
 - Mention the tech stack and how components fit together
 - Note star count and community activity as context
 
 **GitHub PRs:**
+
 - Explain the problem being solved and the approach taken
 - Summarize the diff: what changed, what was added/removed
 - Note interesting discussion points from comments
 - Highlight any code patterns worth learning from
 
 **GitHub issues:**
+
 - Explain the bug or feature request and its significance
 - Summarize the discussion and any proposed solutions
 - Note how it relates to the broader project
 
 **Bitbucket repos:**
+
 - Analyze the README and language for architecture clues (same depth as GitHub repos)
 - Note whether it's private — this signals internal/work tooling context
 - If the README is sparse, note what the project likely does based on the name and description
 
 **Bitbucket PRs:**
+
 - Explain the problem being solved and the branch names (source → destination) for context
 - Describe the changes from the PR description
 - Note the state (OPEN / MERGED / DECLINED) and what that means for the project
 
 **Docs / Web pages:**
+
 - Extract and explain key concepts
 - Highlight code examples with context
 - Explain how this fits into the broader ecosystem
@@ -276,6 +262,7 @@ Remaining entries as a bullet list:
 ### Enrichment Features
 
 **Mermaid diagrams**: Every post MUST include at least one Mermaid diagram. Use the table below to decide which type fits each section. The blog supports mermaid code blocks:
+
 ````markdown
 ```mermaid
 graph TD
@@ -329,34 +316,26 @@ cat > /tmp/log-blog-post.md << 'POSTEOF'
 POSTEOF
 ```
 
-**For `new` or `sequential`** — publish with the new date-based filename, including image flags:
+**For `new` or `sequential`** — publish with the new date-based filename:
+
 ```bash
-uv run log-blog publish /tmp/log-blog-post.md --cover-query "primary topic keywords" --tags "tag1,tag2,tag3"
+uv run log-blog publish /tmp/log-blog-post.md
 # For sequential, override the title via --filename if needed:
-# uv run log-blog publish /tmp/log-blog-post.md --filename 2026-02-20-tech-log.md --cover-query "topic" --tags "tag1,tag2"
+# uv run log-blog publish /tmp/log-blog-post.md --filename 2026-02-20-tech-log.md
 ```
 
 **For `update`** — overwrite the existing post file with the updated content:
+
 ```bash
-uv run log-blog publish /tmp/log-blog-post.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3"
+uv run log-blog publish /tmp/log-blog-post.md --filename EXISTING-FILENAME.md --update
 ```
-The `--update` flag changes the commit message to `"Update tech log: ..."`. Cover images are skipped if already present.
 
-The publish command automatically:
-
-- Downloads a cover image from Unsplash (if `--cover-query` is provided and API key is configured)
-- Ensures SVG icons and `_index.md` files exist for each tag/category in the blog repo
-- Includes all new image/taxonomy files in the git commit
-
-Use `--no-images` to skip all image handling.
-
-**Cover query tips:** Use 2-3 descriptive words from the post's primary topic (e.g., "python web development", "kubernetes cloud architecture", "machine learning neural network"). Avoid single generic words.
-
-**Image frontmatter:** The `image:` field in frontmatter should be `/images/posts/{slug}/cover.jpg` where `{slug}` is the filename without `.md`. For example, filename `2026-02-24-tech-log.md` → `image: "/images/posts/2026-02-24-tech-log/cover.jpg"`.
+The `--update` flag changes the commit message to `"Update tech log: ..."`.
 
 Then ask the user: *"Post committed locally. Push to GitHub to deploy?"*
 
 If yes, get the blog repo path from `config.yaml` and run:
+
 ```bash
 git -C "$(uv run python -c "from log_blog.config import load_config; c = load_config(); print(c.blog.repo_path_resolved)")" push
 ```
@@ -371,5 +350,3 @@ git -C "$(uv run python -c "from log_blog.config import load_config; c = load_co
 - For Korean posts, use Korean section headers: 개요, 빠른 링크, 인사이트
 - Every post needs at least one Mermaid diagram — see the diagram table in Step 5 for which type fits each section
 - For GitHub repos, consider running extra `gh` commands to get file trees or specific files for deeper analysis
-- Always include `--cover-query` and `--tags` in the publish command so images and icons are handled automatically
-- If the Unsplash API key is not configured, cover images are skipped gracefully — the post still publishes fine
