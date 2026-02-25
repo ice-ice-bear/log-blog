@@ -1,9 +1,11 @@
-"""Fetch AI chat conversations using cookie-injected Playwright.
+"""Fetch AI chat conversations by connecting to the user's running Chrome via CDP.
 
-Each AI service (Perplexity, ChatGPT, Claude) renders conversations as a
-single-page app. We inject the user's Chrome session cookies into a headless
-browser to bypass authentication and Cloudflare, then extract the Q&A thread
-with service-specific CSS selectors.
+Instead of decrypting cookies or copying profiles, we connect to Chrome's
+DevTools Protocol endpoint. This gives Playwright access to the user's live
+browser session — all cookies, localStorage, and auth state — with zero
+Keychain interaction.
+
+Requires Chrome to be running with: --remote-debugging-port=9222
 
 source: "online" — content fetched live from the web with user's auth session.
 """
@@ -16,46 +18,69 @@ logger = logging.getLogger(__name__)
 
 _SPA_WAIT_MS = 3000   # extra wait after page load for SPA hydration
 _MAX_CONTENT = 12000  # chars — AI conversations can be very long
+_DEFAULT_CDP_PORT = 9222
 
 
 async def fetch_ai_chat(
     url: str,
-    cookies: list[dict],
+    cdp_port: int | None,
     timeout_ms: int,
     url_type: str,
+    auth_required: bool = False,
 ) -> dict | None:
-    """Fetch an AI chat URL with injected cookies.
+    """Fetch an AI chat URL by connecting to the user's running Chrome via CDP.
 
     Args:
         url:        The conversation URL.
-        cookies:    Playwright-format cookie dicts from cookie_extractor.
+        cdp_port:   Chrome DevTools Protocol port (default 9222).
+                    If None or connection fails, falls back to a plain headless browser.
         timeout_ms: Page navigation timeout in milliseconds.
-        url_type:   One of "ai_chat_perplexity" / "ai_chat_chatgpt" / "ai_chat_claude".
+        url_type:   One of "ai_chat_perplexity" / "ai_chat_chatgpt" / "ai_chat_claude" / "ai_chat_gemini".
+        auth_required: If True, skip unauthenticated fallback when CDP is unavailable.
 
     Returns:
         Dict with title, content, service, auth_used, source="online", or None on failure.
     """
     from playwright.async_api import async_playwright
 
-    service = url_type.replace("ai_chat_", "")  # "perplexity" / "chatgpt" / "claude"
+    service = url_type.replace("ai_chat_", "")
+    port = cdp_port or _DEFAULT_CDP_PORT
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
+            # Try connecting to the user's running Chrome
+            browser = None
+            auth_used = False
+            try:
+                browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
+                auth_used = True
+                logger.info("Connected to Chrome via CDP on port %d", port)
+            except Exception as e:
+                logger.warning(
+                    "Could not connect to Chrome CDP on port %d: %s. "
+                    "Launch Chrome with --remote-debugging-port=%d for authenticated fetching.",
+                    port, e, port,
+                )
+                if auth_required:
+                    logger.info(
+                        "auth_profile is configured — skipping unauthenticated fallback for %s",
+                        url,
+                    )
+                    return None
+                # Fallback: headless browser without auth (no auth_profile configured)
+                browser = await p.chromium.launch(headless=True)
+
+            context = browser.contexts[0] if auth_used and browser.contexts else await browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/122.0.0.0 Safari/537.36"
-                )
+                ),
             )
-            if cookies:
-                await context.add_cookies(cookies)
 
             page = await context.new_page()
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                # Extra wait for React/Next.js SPA to hydrate content
                 await page.wait_for_timeout(_SPA_WAIT_MS)
 
                 title = await page.title()
@@ -65,12 +90,13 @@ async def fetch_ai_chat(
                     "title": title,
                     "content": content[:_MAX_CONTENT] if content else "",
                     "service": service,
-                    "auth_used": bool(cookies),
+                    "auth_used": auth_used,
                     "source": "online",
                 }
             finally:
-                await context.close()
-                await browser.close()
+                await page.close()
+                if not auth_used:
+                    await browser.close()
 
     except Exception as e:
         logger.warning("AI chat fetch failed for %s: %s", url, e)
@@ -86,8 +112,9 @@ async def _extract_content(page, service: str) -> str:
         return await _extract_chatgpt(page)
     elif service == "claude":
         return await _extract_claude(page)
+    elif service == "gemini":
+        return await _extract_gemini(page)
 
-    # Unknown service — generic fallback
     return await _generic_extract(page)
 
 
@@ -97,11 +124,9 @@ async def _extract_perplexity(page) -> str:
         () => {
             const parts = [];
 
-            // Question is usually in h1 or a heading-level element
             const q = document.querySelector('h1, [class*="query"], [class*="question"]');
             if (q) parts.push('[QUESTION]\\n' + q.innerText.trim());
 
-            // Answers are in prose/markdown containers
             const answers = document.querySelectorAll(
                 '[class*="prose"], [class*="markdown"], [class*="answer"]'
             );
@@ -112,7 +137,6 @@ async def _extract_perplexity(page) -> str:
                 }
             });
 
-            // Sources list
             const sources = document.querySelectorAll('[class*="source"] a, [class*="citation"] a');
             if (sources.length > 0) {
                 const sourceList = Array.from(sources)
@@ -134,11 +158,9 @@ async def _extract_chatgpt(page) -> str:
     return await page.evaluate("""
         () => {
             const parts = [];
-            // Each turn has data-message-author-role="user" or "assistant"
             const messages = document.querySelectorAll('[data-message-author-role]');
 
             if (messages.length === 0) {
-                // Fallback: try article elements (share page layout)
                 const articles = document.querySelectorAll('article');
                 articles.forEach(a => {
                     const text = a.innerText.trim();
@@ -150,7 +172,6 @@ async def _extract_chatgpt(page) -> str:
             messages.forEach(msg => {
                 const role = msg.getAttribute('data-message-author-role');
                 const label = role === 'user' ? '[USER]' : '[ASSISTANT]';
-                // Content is inside .markdown or .whitespace-pre-wrap
                 const content = msg.querySelector(
                     '.markdown, .whitespace-pre-wrap, [class*="prose"]'
                 );
@@ -171,18 +192,14 @@ async def _extract_claude(page) -> str:
         () => {
             const parts = [];
 
-            // Human turns
             const human = document.querySelectorAll(
                 '[class*="human"], [data-testid*="human"], .font-human-message'
             );
-            // Assistant turns
             const assistant = document.querySelectorAll(
                 '[class*="assistant"], [data-testid*="assistant"], .font-claude-message'
             );
 
-            // If we found role-specific elements, interleave them
             if (human.length > 0 || assistant.length > 0) {
-                // Collect all message elements with their vertical position
                 const all = [];
                 human.forEach(el => all.push({ role: 'USER', el, top: el.getBoundingClientRect().top }));
                 assistant.forEach(el => all.push({ role: 'ASSISTANT', el, top: el.getBoundingClientRect().top }));
@@ -194,8 +211,38 @@ async def _extract_claude(page) -> str:
                 return parts.join('\\n\\n');
             }
 
-            // Fallback: grab main content
             const main = document.querySelector('main') || document.body;
+            return main.innerText.trim().slice(0, 8000);
+        }
+    """)
+
+
+async def _extract_gemini(page) -> str:
+    """Extract the conversation thread from a Gemini (gemini.google.com) chat page."""
+    return await page.evaluate("""
+        () => {
+            const parts = [];
+
+            const turns = document.querySelectorAll(
+                '[class*="query-content"], [class*="response-content"], '
+                + '[class*="user-query"], [class*="model-response"], '
+                + 'message-content, .conversation-container > div'
+            );
+
+            if (turns.length > 0) {
+                turns.forEach(el => {
+                    const text = el.innerText.trim();
+                    if (text.length < 10) return;
+                    const classes = (el.className || '') + (el.getAttribute('data-content-type') || '');
+                    const isUser = /user|query|human/i.test(classes);
+                    const isModel = /model|response|assistant/i.test(classes);
+                    const label = isUser ? '[USER]' : isModel ? '[ASSISTANT]' : '[MESSAGE]';
+                    parts.push(label + '\\n' + text);
+                });
+                if (parts.length > 0) return parts.join('\\n\\n');
+            }
+
+            const main = document.querySelector('main, [role="main"]') || document.body;
             return main.innerText.trim().slice(0, 8000);
         }
     """)

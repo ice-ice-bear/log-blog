@@ -102,7 +102,7 @@ async def _fetch_one(page, url: str, timeout_ms: int) -> PageContent:
         return PageContent(url=url, title="", text_content="", success=False, error=str(e))
 
 
-def _fetch_youtube(url: str) -> PageContent:
+def _fetch_youtube(url: str) -> PageContent | None:
     """Fetch YouTube content via transcript API."""
     from .youtube_fetcher import fetch_youtube_transcript
 
@@ -125,6 +125,7 @@ _AI_CHAT_SERVICE_MAP = {
     UrlType.AI_CHAT_PERPLEXITY: "perplexity",
     UrlType.AI_CHAT_CHATGPT: "chatgpt",
     UrlType.AI_CHAT_CLAUDE: "claude",
+    UrlType.AI_CHAT_GEMINI: "gemini",
 }
 
 
@@ -132,17 +133,13 @@ async def _fetch_ai_chat_online(
     url: str,
     url_type: UrlType,
     config: Config,
-    profiles: list[dict] | None = None,
 ) -> PageContent | None:
-    """Fetch an AI chat URL using Chrome cookies for authentication.
+    """Fetch an AI chat URL by connecting to Chrome via CDP.
 
     Looks up the per-service config from accounts.ai_chats.{service}:
     - enabled=false  → returns PageContent(success=False), no Playwright fallback
     - auth_profile="" → returns None, falls through to unauthenticated Playwright
-    - auth_profile set → resolves email to Chrome folder, extracts cookies, injects
-
-    The `profiles` argument is the pre-resolved list from list_chrome_profiles()
-    (pass it in to avoid re-reading the Chrome Local State file per URL).
+    - auth_profile set → connects to Chrome via CDP for authenticated fetching
 
     Return values for the caller:
     - None           → fall back to Playwright
@@ -167,33 +164,12 @@ async def _fetch_ai_chat_online(
     if not service_cfg.auth_profile:
         return None  # No auth configured → fall through to unauthenticated Playwright
 
-    from .cookie_extractor import get_chrome_cookies_for_url
     from .ai_chat_fetcher import fetch_ai_chat
-    from urllib.parse import urlparse
 
-    # Use pre-resolved profiles list to avoid re-reading Local State per URL
-    if profiles is None:
-        from .history_reader import list_chrome_profiles
-        profiles = list_chrome_profiles(config)
-
-    # Resolve email → Chrome profile folder
-    auth_folder = next(
-        (p["folder"] for p in profiles
-         if p["email"].lower() == service_cfg.auth_profile.lower()),
-        None,
+    result = await fetch_ai_chat(
+        url, config.playwright.cdp_port, config.playwright.timeout_ms, url_type.value,
+        auth_required=bool(service_cfg.auth_profile),
     )
-    if not auth_folder:
-        logger.warning(
-            "accounts.ai_chats.%s.auth_profile '%s' not found in Chrome profiles",
-            service_name, service_cfg.auth_profile,
-        )
-        return None
-
-    profile_path = config.chrome.history_db_base_path / auth_folder
-    domain = urlparse(url).netloc
-    cookies = get_chrome_cookies_for_url(profile_path, domain)
-
-    result = await fetch_ai_chat(url, cookies, config.playwright.timeout_ms, url_type.value)
     if not result:
         return None
 
@@ -260,7 +236,7 @@ def _fetch_bitbucket(url: str, url_type: UrlType, config: Config) -> PageContent
     )
 
 
-def _fetch_github(url: str, url_type: UrlType) -> PageContent:
+def _fetch_github(url: str, url_type: UrlType) -> PageContent | None:
     """Fetch GitHub content via gh CLI."""
     from .github_fetcher import fetch_github_content
 
@@ -323,94 +299,108 @@ def _fetch_github(url: str, url_type: UrlType) -> PageContent:
     return None
 
 
-_AI_CHAT_TYPES = (UrlType.AI_CHAT_PERPLEXITY, UrlType.AI_CHAT_CHATGPT, UrlType.AI_CHAT_CLAUDE)
+_AI_CHAT_TYPES = (UrlType.AI_CHAT_PERPLEXITY, UrlType.AI_CHAT_CHATGPT, UrlType.AI_CHAT_CLAUDE, UrlType.AI_CHAT_GEMINI)
 _GITHUB_TYPES = (UrlType.GITHUB_REPO, UrlType.GITHUB_PR, UrlType.GITHUB_ISSUE)
 
 
 async def _fetch_batch(urls: list[str], config: Config) -> list[PageContent]:
-    """Fetch multiple pages, dispatching by URL type."""
-    results: list[PageContent] = []
-    playwright_urls: list[tuple[int, str]] = []  # (index, url)
+    """Fetch multiple pages, dispatching by URL type.
 
-    # Switch GitHub account once before the batch if a profile is configured;
-    # remember the previous user so we can restore it afterward.
+    Sync fetchers (YouTube, GitHub, Bitbucket) run in parallel via asyncio.to_thread.
+    AI chat fetchers (already async) run in parallel via asyncio.gather.
+    Remaining URLs go through Playwright concurrently.
+    """
+    classified = [(url, classify_url(url)) for url in urls]
+
+    # Switch GitHub account once before the batch if a profile is configured
     _previous_gh_user: str | None = None
-    if config.accounts.github.profile:
-        has_github = any(classify_url(u) in _GITHUB_TYPES for u in urls)
-        if has_github:
-            from .github_fetcher import switch_github_profile, get_current_gh_user
-            _previous_gh_user = get_current_gh_user()
-            switch_github_profile(config.accounts.github.profile)
+    has_github = any(ut in _GITHUB_TYPES for _, ut in classified)
+    if config.accounts.github.profile and has_github:
+        from .github_fetcher import switch_github_profile, get_current_gh_user
+        _previous_gh_user = get_current_gh_user()
+        switch_github_profile(config.accounts.github.profile)
 
-    # Pre-resolve Chrome profiles once for AI chat cookie extraction
-    _chrome_profiles: list[dict] | None = None
-    if any(classify_url(u) in _AI_CHAT_TYPES for u in urls):
-        from .history_reader import list_chrome_profiles
-        _chrome_profiles = list_chrome_profiles(config)
+    results: dict[str, PageContent] = {}
+    playwright_urls: list[str] = []
 
     try:
-        # Classify and dispatch non-Playwright fetches first
-        for i, url in enumerate(urls):
-            url_type = classify_url(url)
+        # --- Bucket URLs by type ---
+        youtube_urls: list[str] = []
+        github_urls: list[tuple[str, UrlType]] = []
+        bitbucket_urls: list[tuple[str, UrlType]] = []
+        ai_chat_urls: list[tuple[str, UrlType]] = []
+        pw_direct_urls: list[str] = []
 
+        for url, url_type in classified:
             if url_type == UrlType.YOUTUBE:
-                content = _fetch_youtube(url)
-                if content:
-                    results.append(content)
-                    continue
-                # Fallback to Playwright
-                playwright_urls.append((i, url))
-
+                youtube_urls.append(url)
             elif url_type in _GITHUB_TYPES:
-                content = _fetch_github(url, url_type)
-                if content:
-                    results.append(content)
-                    continue
-                # Fallback to Playwright
-                playwright_urls.append((i, url))
-
+                github_urls.append((url, url_type))
             elif url_type in (UrlType.BITBUCKET_REPO, UrlType.BITBUCKET_PR):
-                content = _fetch_bitbucket(url, url_type, config)
-                if content:
-                    results.append(content)
-                    continue
-                # Fallback to Playwright
-                playwright_urls.append((i, url))
-
+                bitbucket_urls.append((url, url_type))
             elif url_type in _AI_CHAT_TYPES:
-                content = await _fetch_ai_chat_online(url, url_type, config, profiles=_chrome_profiles)
-                if content is None:
-                    # No auth configured → fall back to Playwright
-                    playwright_urls.append((i, url))
-                elif content.success:
-                    results.append(content)
-                # else: service disabled → skip entirely, no Playwright fallback
-
+                ai_chat_urls.append((url, url_type))
             else:
-                # GITHUB_OTHER, BITBUCKET other, DOCS_PAGE, WEB_PAGE → Playwright
-                playwright_urls.append((i, url))
+                pw_direct_urls.append(url)
+
+        # --- Run sync fetchers in parallel via to_thread ---
+        sync_tasks: list = []
+        sync_task_urls: list[str] = []
+
+        for url in youtube_urls:
+            sync_tasks.append(asyncio.to_thread(_fetch_youtube, url))
+            sync_task_urls.append(url)
+
+        for url, ut in github_urls:
+            sync_tasks.append(asyncio.to_thread(_fetch_github, url, ut))
+            sync_task_urls.append(url)
+
+        for url, ut in bitbucket_urls:
+            sync_tasks.append(asyncio.to_thread(_fetch_bitbucket, url, ut, config))
+            sync_task_urls.append(url)
+
+        if sync_tasks:
+            sync_results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+            for url, content in zip(sync_task_urls, sync_results):
+                if isinstance(content, Exception):
+                    logger.warning("Sync fetch failed for %s: %s", url, content)
+                    playwright_urls.append(url)
+                elif content is not None:
+                    results[url] = content
+                else:
+                    playwright_urls.append(url)
+
+        # --- Run AI chat fetches (already async) in parallel ---
+        if ai_chat_urls:
+            ai_tasks = [_fetch_ai_chat_online(url, ut, config) for url, ut in ai_chat_urls]
+            ai_results = await asyncio.gather(*ai_tasks, return_exceptions=True)
+            for (url, _ut), content in zip(ai_chat_urls, ai_results):
+                if isinstance(content, Exception):
+                    logger.warning("AI chat fetch failed for %s: %s", url, content)
+                    playwright_urls.append(url)
+                elif content is None:
+                    playwright_urls.append(url)
+                elif content.success:
+                    results[url] = content
+                # else: service disabled → skip entirely
+
+        # --- Playwright for everything remaining ---
+        playwright_urls.extend(pw_direct_urls)
+
+        if playwright_urls:
+            pw_results = await _fetch_with_playwright(playwright_urls, config)
+            for url, page_content in zip(playwright_urls, pw_results):
+                page_content.url_type = classify_url(url).value
+                results[url] = page_content
 
     finally:
-        # Restore previous gh CLI profile if we switched it
         if _previous_gh_user and config.accounts.github.profile != _previous_gh_user:
             from .github_fetcher import switch_github_profile
             switch_github_profile(_previous_gh_user)
 
-    # Fetch remaining URLs via Playwright
-    if playwright_urls:
-        pw_urls = [u for _, u in playwright_urls]
-        pw_results = await _fetch_with_playwright(pw_urls, config)
-
-        for (_, url), page_content in zip(playwright_urls, pw_results):
-            url_type = classify_url(url)
-            page_content.url_type = url_type.value
-            results.append(page_content)
-
     # Sort results to match original URL order
     url_order = {url: i for i, url in enumerate(urls)}
-    results.sort(key=lambda r: url_order.get(r.url, 999))
-
-    return results
+    return sorted(results.values(), key=lambda r: url_order.get(r.url, 999))
 
 
 async def _fetch_with_playwright(urls: list[str], config: Config) -> list[PageContent]:
