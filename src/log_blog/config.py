@@ -100,9 +100,9 @@ class AccountsConfig:
 
 @dataclass
 class ImagesConfig:
-    unsplash_api_key: str = ""  # supports ${ENV_VAR} syntax
     cover_enabled: bool = True
     taxonomy_enabled: bool = True
+    cover_font_path: str = ""  # optional: custom font path (auto-detects system Korean font if empty)
 
 
 @dataclass
@@ -162,10 +162,6 @@ def load_config(path: str | Path | None = None) -> Config:
         if "auth_profile" in svc:
             svc["auth_profile"] = _resolve_env_vars(str(svc["auth_profile"]))
         return AiChatServiceConfig(**svc)
-
-    # Resolve ${ENV_VAR} in image API keys
-    if "unsplash_api_key" in images_data:
-        images_data["unsplash_api_key"] = _resolve_env_vars(str(images_data["unsplash_api_key"]))
 
     return Config(
         chrome=ChromeConfig(**_filter_fields(ChromeConfig, chrome_data)),

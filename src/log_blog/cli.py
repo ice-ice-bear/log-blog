@@ -20,6 +20,71 @@ from .publisher import publish_post, pull_latest
 console = Console()
 
 
+def _inject_frontmatter_field(content: str, key: str, value: str) -> str:
+    """Insert a YAML field into existing frontmatter if not already present."""
+    if not content.startswith("---"):
+        return content
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return content
+    fm = parts[1]
+    if f"{key}:" in fm:
+        return content
+    # Insert after the first line (blank line after opening ---)
+    lines = fm.rstrip("\n").split("\n")
+    # Find the line after 'date:' or 'title:' to insert image near the top
+    insert_idx = len(lines)
+    for i, line in enumerate(lines):
+        if line.startswith("date:"):
+            insert_idx = i + 1
+            break
+    lines.insert(insert_idx, f'{key}: "{value}"')
+    return "---" + "\n".join(lines) + "\n---" + parts[2]
+
+
+def _parse_frontmatter_tags(content: str) -> tuple[list[str], list[str]]:
+    """Extract tags and categories from YAML frontmatter.
+
+    Returns (tags, categories) lists. Handles both inline `[a, b]`
+    and multi-line `- a` YAML list formats.
+    """
+    if not content.startswith("---"):
+        return [], []
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return [], []
+    fm_lines = parts[1].strip().splitlines()
+
+    def _parse_list(lines: list[str], start: int) -> list[str]:
+        """Parse a YAML list value starting at *start* index."""
+        # Inline: tags: ["a", "b"] or tags: [a, b]
+        value_part = lines[start].split(":", 1)[1].strip()
+        if value_part.startswith("["):
+            raw = value_part.strip("[]")
+            return [v.strip().strip("\"'") for v in raw.split(",") if v.strip().strip("\"'")]
+        # Multi-line:
+        #   tags:
+        #     - a
+        #     - b
+        items: list[str] = []
+        for line in lines[start + 1:]:
+            stripped = line.strip()
+            if stripped.startswith("- "):
+                items.append(stripped[2:].strip().strip("\"'"))
+            elif stripped == "" or not line[0].isspace():
+                break
+        return items
+
+    tags: list[str] = []
+    categories: list[str] = []
+    for i, line in enumerate(fm_lines):
+        if line.startswith("tags:"):
+            tags = _parse_list(fm_lines, i)
+        elif line.startswith("categories:"):
+            categories = _parse_list(fm_lines, i)
+    return tags, categories
+
+
 def cmd_extract(args: argparse.Namespace) -> None:
     """Extract and display browsing history."""
     config = load_config(args.config)
@@ -356,16 +421,24 @@ def cmd_publish(args: argparse.Namespace) -> None:
     extra_paths = None
     if not args.no_images:
         post_slug = filename.removesuffix(".md")
-        tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
-        categories = ["tech-log"]
-        cover_query = args.cover_query or ""
+        # Parse tags/categories from frontmatter, merge with CLI --tags
+        fm_tags, fm_categories = _parse_frontmatter_tags(content)
+        cli_tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
+        tags = list(dict.fromkeys(fm_tags + cli_tags))  # dedupe, preserve order
+        categories = fm_categories or ["tech-log"]
+        cover_title = args.cover_title or ""
 
-        if tags or cover_query:
+        if tags or categories or cover_title:
             console.print("[blue]Preparing images...[/blue]")
-            assets = prepare_images(post_slug, tags, categories, cover_query, config)
+            assets = prepare_images(post_slug, cover_title, tags, categories, config)
             extra_paths = assets.all_new_paths
             if extra_paths:
                 console.print(f"[green]{len(extra_paths)} image file(s) ready[/green]")
+
+            # Inject image frontmatter if cover was generated and not already present
+            if assets.cover and assets.cover.success and assets.cover.relative_url:
+                if "image:" not in content.split("---", 2)[1] if content.startswith("---") else True:
+                    content = _inject_frontmatter_field(content, "image", assets.cover.relative_url)
 
     post_path = publish_post(
         content, filename, config,
@@ -424,7 +497,7 @@ def main() -> None:
     p_pub.add_argument("--filename", help="Override output filename (default: YYYY-MM-DD-tech-log.md)")
     p_pub.add_argument("--push", action="store_true", help="Push to remote after committing")
     p_pub.add_argument("--update", action="store_true", help="Update an existing post (changes commit message)")
-    p_pub.add_argument("--cover-query", help="Search terms for cover image (e.g., 'python programming')")
+    p_pub.add_argument("--cover-title", help="Post title for cover image generation (rendered on the image)")
     p_pub.add_argument("--tags", help="Comma-separated tags for taxonomy icon ensuring (e.g., 'python,fastapi')")
     p_pub.add_argument("--no-images", action="store_true", help="Skip cover image and taxonomy icon handling")
     p_pub.set_defaults(func=cmd_publish)

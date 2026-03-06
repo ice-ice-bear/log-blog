@@ -331,9 +331,9 @@ POSTEOF
 
 **For `new` or `sequential`** — publish with the new date-based filename, including image flags:
 ```bash
-uv run log-blog publish /tmp/log-blog-post.md --cover-query "primary topic keywords" --tags "tag1,tag2,tag3"
+uv run log-blog publish /tmp/log-blog-post.md --cover-title "Post Title Here" --tags "tag1,tag2,tag3"
 # For sequential, override the title via --filename if needed:
-# uv run log-blog publish /tmp/log-blog-post.md --filename 2026-02-20-tech-log.md --cover-query "topic" --tags "tag1,tag2"
+# uv run log-blog publish /tmp/log-blog-post.md --filename 2026-02-20-tech-log.md --cover-title "Post Title" --tags "tag1,tag2"
 ```
 
 **For `update`** — overwrite the existing post file with the updated content:
@@ -344,13 +344,13 @@ The `--update` flag changes the commit message to `"Update tech log: ..."`. Cove
 
 The publish command automatically:
 
-- Downloads a cover image from Unsplash (if `--cover-query` is provided and API key is configured)
+- Generates a cover image with gradient, title, and tag pills using Pillow (if `--cover-title` is provided)
 - Ensures SVG icons and `_index.md` files exist for each tag/category in the blog repo
 - Includes all new image/taxonomy files in the git commit
 
 Use `--no-images` to skip all image handling.
 
-**Cover query tips:** Use 2-3 descriptive words from the post's primary topic (e.g., "python web development", "kubernetes cloud architecture", "machine learning neural network"). Avoid single generic words.
+**Cover title tips:** Pass the post's title (it gets rendered on the generated cover image). The image colors are auto-selected based on the tags.
 
 **Image frontmatter:** The `image:` field in frontmatter should be `/images/posts/{slug}/cover.jpg` where `{slug}` is the filename without `.md`. For example, filename `2026-02-24-tech-log.md` → `image: "/images/posts/2026-02-24-tech-log/cover.jpg"`.
 
@@ -371,5 +371,4 @@ git -C "$(uv run python -c "from log_blog.config import load_config; c = load_co
 - For Korean posts, use Korean section headers: 개요, 빠른 링크, 인사이트
 - Every post needs at least one Mermaid diagram — see the diagram table in Step 5 for which type fits each section
 - For GitHub repos, consider running extra `gh` commands to get file trees or specific files for deeper analysis
-- Always include `--cover-query` and `--tags` in the publish command so images and icons are handled automatically
-- If the Unsplash API key is not configured, cover images are skipped gracefully — the post still publishes fine
+- Always include `--cover-title` and `--tags` in the publish command so images and icons are handled automatically

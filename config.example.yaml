@@ -59,10 +59,9 @@ accounts:
       enabled: true
 
 # Image handling for blog posts.
-# Cover images are downloaded from Unsplash; taxonomy icons from Simple Icons / Tabler Icons.
-# Recommended: add to ~/.zshrc:  export UNSPLASH_API_KEY="your-key"
-# Get a free key: https://unsplash.com/developers
+# Cover images are generated locally using Pillow (gradient + title + tags).
+# Taxonomy icons are sourced from Simple Icons / Tabler Icons CDN.
 images:
-  unsplash_api_key: "${UNSPLASH_API_KEY}"
-  cover_enabled: true       # Set false to skip cover image downloading
+  cover_enabled: true       # Set false to skip cover image generation
   taxonomy_enabled: true    # Set false to skip tag/category icon management
+  # cover_font_path: ""     # Optional: custom font path (default: auto-detect Korean system font)

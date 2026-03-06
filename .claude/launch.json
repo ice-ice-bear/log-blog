@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hugo-blog",
+      "runtimeExecutable": "hugo",
+      "runtimeArgs": ["server", "--buildDrafts", "--source", "/Users/lsr/Documents/github/ice-ice-bear.github.io"],
+      "port": 1313
+    }
+  ]
+}

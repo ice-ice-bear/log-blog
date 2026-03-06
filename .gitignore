@@ -9,3 +9,4 @@ build/
 
 # Claude Code — local-only overrides (machine-specific permissions/tokens)
 .claude/settings.local.json
+.playwright-mcp/
