@@ -207,6 +207,7 @@ Using the fetched content, write a Hugo markdown post. This should be a **deep-d
 ---
 image: "/images/posts/YYYY-MM-DD-tech-log/cover.jpg"
 title: "Tech Log: YYYY-MM-DD"
+description: "One-sentence plain-text summary for SEO and og:description (NO quotes, NO special chars)"
 date: YYYY-MM-DD
 categories: ["tech-log"]
 tags: ["extracted", "from", "content"]
@@ -216,6 +217,8 @@ math: false
 
 ## Overview
 Brief 2-3 sentence summary of the day's exploration theme.
+
+<!--more-->
 
 ## [Descriptive Topic Name]
 (Each major topic gets its own ## section — use descriptive names, not "Highlights")
@@ -275,7 +278,14 @@ Remaining entries as a bullet list:
 
 ### Enrichment Features
 
-**Mermaid diagrams**: Every post MUST include at least one Mermaid diagram. Use the table below to decide which type fits each section. The blog supports mermaid code blocks:
+**Mermaid diagrams**: Every post MUST include at least one Mermaid diagram. Use the table below to decide which type fits each section. The blog supports mermaid code blocks.
+
+**CRITICAL — Mermaid safety rules for Hugo Stack theme:**
+1. **`description:` frontmatter is REQUIRED** — plain text, no quotes or special chars. Without it, Hugo auto-generates `og:description` from `.Summary`, which can include mermaid code and break the HTML meta tag (quotes in mermaid `A["text"]` break the `content="..."` attribute, leaking raw source onto the page).
+2. **`<!--more-->` marker is REQUIRED** — place it after the Overview paragraph, BEFORE the first mermaid block. This limits `.Summary` to clean text only.
+3. **Use `&lt;br/&gt;`** (HTML entities) instead of `<br/>` for line breaks in mermaid labels. Hugo's `safeHTML` converts `<br/>` to real HTML elements that break mermaid parsing.
+4. **Always quote labels containing `/`** — use `["text with /slash"]` not `[text with /slash]`. Unquoted `/` triggers mermaid's rhombus syntax parser.
+5. **One broken diagram hides ALL** — mermaid.js runs all diagrams in batch; if one fails, none become visible. Always validate syntax.
 ````markdown
 ```mermaid
 graph TD
