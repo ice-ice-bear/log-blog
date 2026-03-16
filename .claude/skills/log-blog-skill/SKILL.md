@@ -40,15 +40,21 @@ Adjust `--hours` if the user specifies a different range. This outputs a JSON ar
 
 ## Step 2: Classify and Group (You — Claude — Do This)
 
-Read the JSON output and split entries into **tech** vs **non-tech**.
+Read the JSON output. Each entry now includes a `url_type` field from the classifier.
 
-**Tech** = programming docs, GitHub repos/issues/PRs, Stack Overflow, dev blogs, API docs, framework docs, tech news (HN, etc.), cloud platform pages, tutorials, YouTube tech talks.
+**Use `url_type` for grouping** — don't reclassify manually:
+- `youtube` → YouTube
+- `github_repo`, `github_pr`, `github_issue` → GitHub
+- `ai_chat_perplexity`, `ai_chat_chatgpt`, `ai_chat_claude`, `ai_chat_gemini` → AI Chats
+- `docs_page`, `web_page` → Docs/Web
+- `ai_landing` entries are already filtered out by default
 
-**Non-tech** = social media, shopping, banking, email, entertainment, generic search result pages.
+**Filter out non-tech** entries (social media, shopping, banking, etc.) based on URL and title.
 
 **Group classified entries by URL type:**
 - **YouTube** — video URLs (youtube.com, youtu.be)
 - **GitHub** — repos, PRs, issues
+- **AI Chats** — ChatGPT, Claude, Gemini, Perplexity conversations
 - **Docs/Web** — documentation sites, blog posts, other web pages
 
 This grouping helps you plan the blog post structure and prioritize which entries deserve deep analysis.
@@ -111,6 +117,9 @@ Also state your **post action recommendation** from Step 2.5:
 Ask: *"Want to add/remove any entries, or change the post action before I fetch content?"*
 
 **Wait for explicit approval before proceeding.**
+
+If the user frequently uses Claude.ai web chat or Claude Code, suggest:
+> "To include Claude conversations, export your data from claude.ai → Settings → Export, then run `uv run log-blog import-ai ~/path/to/claude-export.json`."
 
 ---
 
