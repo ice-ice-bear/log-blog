@@ -24,6 +24,7 @@ class UrlType(str, Enum):
     AI_CHAT_GEMINI = "ai_chat_gemini"
     DOCS_PAGE = "docs_page"
     WEB_PAGE = "web_page"
+    AI_LANDING = "ai_landing"
 
 
 @dataclass
@@ -72,11 +73,24 @@ _CLAUDE = re.compile(
 )
 # Verified: 2026-02-25
 _GEMINI = re.compile(
-    r"gemini\.google\.com/app/[a-zA-Z0-9]+" # gemini.google.com/app/{conversation-id}
+    r"gemini\.google\.com/app/[a-zA-Z0-9]+"    # gemini.google.com/app/{conversation-id}
+    r"|gemini\.google\.com/share/[a-zA-Z0-9]+" # gemini.google.com/share/{id}
 )
 
 # Known AI service domains for unmatched-URL warning (landing pages, settings, etc.)
 _AI_CHAT_DOMAINS = ("perplexity.ai", "chatgpt.com", "chat.openai.com", "claude.ai", "gemini.google.com")
+
+# Noise patterns — landing pages, auth flows, settings, etc.
+# Checked BEFORE conversation patterns to prevent wasted Playwright fetches.
+_AI_NOISE_PATTERNS = [
+    re.compile(r"claude\.ai/(?:oauth|chrome|code|project)(?:/|[?#]|$)"),
+    re.compile(r"claude\.ai/?(?:[?#]|$)"),
+    re.compile(r"chatgpt\.com/?(?:[?#]|$)"),
+    re.compile(r"chatgpt\.com/(?:auth|backend-api|gpts)(?:/|[?#]|$)"),
+    re.compile(r"gemini\.google\.com/app/(?:download|extensions|settings)(?:/|[?#]|$)"),
+    re.compile(r"gemini\.google\.com/(?:app)?/?(?:[?#]|$)"),
+    re.compile(r"perplexity\.ai/?(?:[?#]|$)"),
+]
 
 # Docs patterns
 _DOCS = re.compile(
@@ -106,7 +120,14 @@ def classify_url(url: str) -> UrlType:
             return UrlType.GITHUB_OTHER
         return UrlType.WEB_PAGE
 
-    # AI chat services — must match per-conversation URLs, not generic landing pages
+    # AI noise filter — check before conversation patterns
+    for domain in _AI_CHAT_DOMAINS:
+        if domain in url:
+            if any(p.search(url) for p in _AI_NOISE_PATTERNS):
+                return UrlType.AI_LANDING
+            break
+
+    # AI chat services — must match per-conversation URLs
     if "perplexity.ai" in url:
         if _PERPLEXITY.search(url):
             return UrlType.AI_CHAT_PERPLEXITY
