@@ -24,25 +24,33 @@ The classifier correctly identifies per-conversation URLs, but the user's actual
 ```python
 class UrlType(str, Enum):
     # ... existing types ...
-    AI_CHAT_CLAUDE_CODE = "ai_chat_claude_code"  # Not browser-scrapable
-    AI_LANDING = "ai_landing"                     # Noise: landing/oauth/settings pages
+    AI_LANDING = "ai_landing"  # Noise: landing/oauth/settings pages
 ```
+
+Note: `AI_CHAT_CLAUDE_CODE` is NOT added — Claude Code runs in terminal, not the browser. Chrome history contains only `claude.ai/code` (landing page) and `claude.ai/code/onboarding`, which are noise. There are no per-session URLs in Chrome history for Claude Code.
 
 #### New conversation patterns
 
 | Pattern | Type |
 |---------|------|
 | `gemini.google.com/share/{id}` | `AI_CHAT_GEMINI` |
-| `claude.ai/project/{uuid}` | `AI_CHAT_CLAUDE` |
-| `claude.ai/code/session_{id}` | `AI_CHAT_CLAUDE_CODE` |
+
+Note: `claude.ai/project/{uuid}` is NOT classified as `AI_CHAT_CLAUDE` — project pages are organizational dashboards, not conversations. They are included in the noise filter instead.
 
 #### Noise filter patterns (checked before conversation patterns)
 
+A new noise check runs **before** the per-domain conversation matching blocks in `classify_url()`. This is a structural change: the current code has `if "claude.ai" in url: ...` blocks with inline `_warn_unmatched_ai()` calls. The new flow is:
+
+1. Check `_AI_NOISE_PATTERNS` → return `AI_LANDING` immediately
+2. Then check per-domain conversation patterns (existing flow)
+3. `_warn_unmatched_ai()` only fires for URLs that pass the noise filter but fail the conversation pattern
+
 ```python
 _AI_NOISE_PATTERNS = [
-    re.compile(r"claude\.ai/(?:oauth|chrome|code(?:/(?:onboarding|family))?)?(?:[?#]|$)"),
-    re.compile(r"chatgpt\.com/?(?:[?#]|$)"),
-    re.compile(r"gemini\.google\.com/(?:app)?(?:/download)?(?:[?#]|$)"),
+    re.compile(r"claude\.ai/(?:oauth|chrome|code|project)(?:/|[?#]|$)"),
+    re.compile(r"claude\.ai/?(?:[?#]|$)"),
+    re.compile(r"chatgpt\.com/(?:auth|backend-api|gpts)?/?(?:[?#]|$)"),
+    re.compile(r"gemini\.google\.com/(?:app(?:/(?:download|extensions|settings))?)?/?(?:[?#]|$)"),
     re.compile(r"gemini\.google\.com/?(?:[?#]|$)"),
     re.compile(r"perplexity\.ai/?(?:[?#]|$)"),
 ]
@@ -52,6 +60,8 @@ Noise patterns are checked first. If matched → `UrlType.AI_LANDING`. This prev
 - Wasting Playwright fetch slots on login walls
 - Cluttering extract output for the skill
 - Warning log spam from `_warn_unmatched_ai()`
+
+The existing `_AI_CHAT_DOMAINS` tuple (line 79) remains unchanged — it is only used by `_warn_unmatched_ai()`, which now only fires for URLs that pass the noise filter.
 
 ### 2. Extract Command Enhancement (`cli.py`)
 
@@ -69,7 +79,9 @@ Add `url_type` field to `--json` output by running each URL through `classify_ur
 
 Filtering behavior:
 - `extract --json`: excludes `AI_LANDING` by default
-- `extract --json --all`: includes everything
+- `extract --json --include-noise`: includes `AI_LANDING` entries too
+
+This adds a lightweight dependency: `cmd_extract()` imports `classify_url` from `url_classifier`. Classification runs on every URL during extract (regex matching ~3,500 URLs is negligible).
 
 This makes the skill's Step 2 classification reliable — uses the same regex engine as the fetch pipeline.
 
@@ -83,10 +95,12 @@ This makes the skill's Step 2 classification reliable — uses the same regex en
 
 #### Claude Code sessions
 
-- **Not browser-scrapable** — Claude Code UI doesn't render conversation content in standard DOM
-- Strategy: surface in extract output with `url_type: "ai_chat_claude_code"` so the skill can inform the user
-- The skill shows: "Claude Code sessions detected — use `uv run log-blog import-ai` with your Claude export to include them"
-- No fetch attempt is made for these URLs
+Claude Code runs in terminal — Chrome history only contains `claude.ai/code` (landing page), not per-session URLs. These are classified as `AI_LANDING` noise and filtered out.
+
+Users who want Claude conversation content in their blog posts should use the offline export path:
+```bash
+uv run log-blog import-ai ~/path/to/claude-export.json --json --days 7
+```
 
 ### 4. Skill Update (`SKILL.md`)
 
@@ -94,18 +108,18 @@ This makes the skill's Step 2 classification reliable — uses the same regex en
 
 When extract output includes `url_type`, the skill groups by type directly instead of Claude manually classifying URLs.
 
-#### Step 3 Claude Code note
+#### Step 3 note on Claude conversations
 
-For any `ai_chat_claude_code` entries, display:
+Claude Code URLs are filtered as noise. If the user wants Claude conversation content, the skill should mention the offline export path:
 
-> "Claude Code sessions detected — these require export data. Run `uv run log-blog import-ai ~/path/to/claude-export.json` to include them."
+> "To include Claude conversations, export your data from claude.ai → Settings → Export, then run `uv run log-blog import-ai ~/path/to/claude-export.json`."
 
 ## Files to Modify
 
-1. **`src/log_blog/url_classifier.py`** — Add `AI_CHAT_CLAUDE_CODE`, `AI_LANDING` types; add noise patterns; expand conversation patterns
-2. **`src/log_blog/cli.py`** — Add `url_type` to `extract --json` output; add `--all` flag
-3. **`src/log_blog/ai_chat_fetcher.py`** — Add `_extract_gemini_share()`; skip `AI_CHAT_CLAUDE_CODE`
-4. **`src/log_blog/content_fetcher.py`** — Handle `AI_LANDING` (skip) and `AI_CHAT_CLAUDE_CODE` (skip with metadata)
+1. **`src/log_blog/url_classifier.py`** — Add `AI_LANDING` type; add noise patterns checked before conversation matching; expand `_GEMINI` regex to also match `gemini.google.com/share/{id}`
+2. **`src/log_blog/cli.py`** — Add `url_type` to `extract --json` output; add `--include-noise` flag
+3. **`src/log_blog/ai_chat_fetcher.py`** — Add `_extract_gemini_share()` for share-page DOM extraction
+4. **`src/log_blog/content_fetcher.py`** — Handle `AI_LANDING` (skip entirely, return `PageContent(success=False, error="AI landing page, no content to fetch")`). Add early-return check before the type-based dispatch buckets. Do NOT add `AI_LANDING` to `_AI_CHAT_TYPES` or `_AI_CHAT_SERVICE_MAP`.
 5. **`.claude/skills/log-blog-skill/SKILL.md`** — Update Steps 2 and 3
 
 ## Out of Scope
