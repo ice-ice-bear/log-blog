@@ -94,15 +94,20 @@ def cmd_extract(args: argparse.Namespace) -> None:
     entries = read_history(config)
 
     if args.json:
-        data = [
-            {
+        from .url_classifier import classify_url, UrlType
+
+        data = []
+        for e in entries:
+            url_type = classify_url(e.url)
+            if url_type == UrlType.AI_LANDING and not args.include_noise:
+                continue
+            data.append({
                 "url": e.url,
                 "title": e.title,
                 "visit_count": e.visit_count,
                 "last_visit_time": e.last_visit_iso,
-            }
-            for e in entries
-        ]
+                "url_type": url_type.value,
+            })
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return
 
@@ -459,6 +464,8 @@ def main() -> None:
     p_extract = subparsers.add_parser("extract", help="Extract browsing history")
     p_extract.add_argument("--hours", type=int, help="Override time range (hours)")
     p_extract.add_argument("--json", action="store_true", help="Output as JSON")
+    p_extract.add_argument("--include-noise", action="store_true", default=False,
+                           help="Include AI landing/noise URLs in output")
     p_extract.set_defaults(func=cmd_extract)
 
     # fetch
