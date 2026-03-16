@@ -84,7 +84,7 @@ async def fetch_ai_chat(
                 await page.wait_for_timeout(_SPA_WAIT_MS)
 
                 title = await page.title()
-                content = await _extract_content(page, service)
+                content = await _extract_content(page, service, url)
 
                 return {
                     "title": title,
@@ -103,7 +103,7 @@ async def fetch_ai_chat(
         return None
 
 
-async def _extract_content(page, service: str) -> str:
+async def _extract_content(page, service: str, url: str = "") -> str:
     """Extract conversation text using service-specific selectors with fallbacks."""
 
     if service == "perplexity":
@@ -112,6 +112,8 @@ async def _extract_content(page, service: str) -> str:
         return await _extract_chatgpt(page)
     elif service == "claude":
         return await _extract_claude(page)
+    elif service == "gemini" and "/share/" in url:
+        return await _extract_gemini_share(page)
     elif service == "gemini":
         return await _extract_gemini(page)
 
@@ -242,6 +244,44 @@ async def _extract_gemini(page) -> str:
                 if (parts.length > 0) return parts.join('\\n\\n');
             }
 
+            const main = document.querySelector('main, [role="main"]') || document.body;
+            return main.innerText.trim().slice(0, 8000);
+        }
+    """)
+
+
+async def _extract_gemini_share(page) -> str:
+    """Extract content from a Gemini share page (gemini.google.com/share/{id}).
+
+    Share pages have a different DOM structure than /app/ conversations.
+    They are publicly accessible — no auth needed.
+    """
+    return await page.evaluate("""
+        () => {
+            const parts = [];
+
+            // Share pages may use different containers than /app/ pages
+            const turns = document.querySelectorAll(
+                '[class*="query-content"], [class*="response-content"], '
+                + '[class*="user-query"], [class*="model-response"], '
+                + 'message-content, .conversation-container > div, '
+                + '[class*="prompt"], [class*="response"]'
+            );
+
+            if (turns.length > 0) {
+                turns.forEach(el => {
+                    const text = el.innerText.trim();
+                    if (text.length < 10) return;
+                    const classes = (el.className || '') + (el.getAttribute('data-content-type') || '');
+                    const isUser = /user|query|human|prompt/i.test(classes);
+                    const isModel = /model|response|assistant/i.test(classes);
+                    const label = isUser ? '[USER]' : isModel ? '[ASSISTANT]' : '[MESSAGE]';
+                    parts.push(label + '\\n' + text);
+                });
+                if (parts.length > 0) return parts.join('\\n\\n');
+            }
+
+            // Fallback: grab main content
             const main = document.querySelector('main, [role="main"]') || document.body;
             return main.innerText.trim().slice(0, 8000);
         }
