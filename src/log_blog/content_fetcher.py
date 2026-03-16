@@ -332,6 +332,13 @@ async def _fetch_batch(urls: list[str], config: Config) -> list[PageContent]:
         pw_direct_urls: list[str] = []
 
         for url, url_type in classified:
+            if url_type == UrlType.AI_LANDING:
+                results[url] = PageContent(
+                    url=url, title="", text_content="",
+                    success=False, error="AI landing page, no content to fetch",
+                    url_type=url_type.value,
+                )
+                continue
             if url_type == UrlType.YOUTUBE:
                 youtube_urls.append(url)
             elif url_type in _GITHUB_TYPES:
