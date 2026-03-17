@@ -31,9 +31,9 @@ last_commit: "02fd47c"        # last commit SHA covered by this post
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `series` | `string \| null` | Project identifier. Must match the project name from `sessions --list` output (e.g., `"trading-agent"`, `"log-blog"`, `"megaupskill"`). |
+| `series` | `string \| null` | Project identifier. This is the **directory basename** of the project repo (e.g., `"trading-agent"`, `"log-blog"`, `"megaupskill"`), which matches the project name from `sessions --list` output. Note: if the repo directory is renamed, the chain breaks — start a new series. |
 | `series_num` | `int \| null` | Explicit 1-based sequence number within the series. |
-| `last_commit` | `string \| null` | Short SHA (7+ chars) of the last git commit covered by this post. Used to determine where the next post should start. |
+| `last_commit` | `string \| null` | Short SHA (7+ chars) of the last git commit covered by this post. Used to determine where the next post should start. When comparing, use **prefix matching** (`full_sha.startswith(last_commit)`) since `sessions` returns full 40-char SHAs while frontmatter stores short SHAs. |
 
 All three fields are optional. Posts without them are treated as standalone (no series).
 
@@ -98,17 +98,25 @@ Replace the current manual Step 2.5 with automated series detection for dev log 
 
 The skill compares the `last_commit` SHA from the previous post against the `git_commits` array from `sessions --project`:
 
+**Important**: `sessions --project` returns `git_commits` in **newest-first** order (from `git log`). The skill must reverse this list to chronological order before filtering:
+
 ```
-git_commits from sessions: [oldest ... newest]
+git_commits from sessions (after reversing to chronological):
   commit_A (oldest)
   commit_B
-  commit_C  ← last_commit from previous post
+  commit_C  ← last_commit from previous post (match via prefix: full_sha.startswith(last_commit))
   commit_D  ← NEW (include)
   commit_E  ← NEW (include)
   commit_F  ← NEW (include, also set as last_commit for this post)
 ```
 
-If `last_commit` SHA is not found in the commits list (e.g., after a rebase or force push), fall back to **time-based filtering**: include commits with timestamps after the previous post's `date` field.
+**Fallback when `last_commit` is not found** (rebase, force push, or missing field):
+- Use **date-based filtering**: include commits with timestamps `>= previous_post.date + 1 day 00:00 KST (UTC+9)`.
+- This excludes the previous post's day entirely to avoid overlap, at the cost of potentially missing same-day commits after the post was published. This is acceptable since same-day continuation is rare.
+
+**Fallback when `series`/`series_num` exist but `last_commit` is missing** (manually created series post):
+- Compute `next_num` from `series_num` as normal.
+- Apply the same date-based filtering as the rebase case.
 
 ### Edge Cases
 
@@ -119,6 +127,9 @@ If `last_commit` SHA is not found in the commits list (e.g., after a rebase or f
 | `last_commit` SHA not in git history (rebase) | Fall back to date-based filtering |
 | Multiple posts same project same day | `series_num` increments correctly (#4, #5) |
 | Existing posts without series frontmatter | Treated as standalone, not part of any series |
+| `series`/`series_num` present but `last_commit` missing | Compute `next_num` normally, use date-based filtering for commits |
+| `scan --limit 30` misses older series post | Increase `--limit` if needed; skill should note when series post is expected but not found |
+| Repo directory renamed | Series chain breaks — start a new series with `series_num: 1` |
 | User wants to restart numbering | Manually set `series_num: 1` in new post |
 
 ### Backward Compatibility
