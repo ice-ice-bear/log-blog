@@ -38,11 +38,18 @@ The user runs 20-40+ Claude Code CLI sessions daily across multiple projects (Gi
 The Claude Code project directory name encodes the filesystem path:
 - `-Users-lsr-Documents-github-trading-agent` → `~/Documents/github/trading-agent`
 
-**Algorithm**:
+**Algorithm** (greedy filesystem matching):
 1. Scan `~/.claude/projects/` for directories containing `.jsonl` files modified within `--hours`
-2. Reverse-map directory name to filesystem path (replace leading `-` with `/`, internal `-` with `/` where path segments match)
-3. Verify the mapped path is a git repository
-4. Detect repo type: check for `.git` remote URL containing `github.com` vs `bitbucket.org`
+2. Strip worktree suffix: split on `--claude-worktrees-` and take the first part
+3. Reverse-map directory name to filesystem path:
+   - Replace the leading `-` with `/` to get a raw path string (e.g., `/Users/lsr/Documents/github/trading-agent`)
+   - Split on `-` to get candidate segments
+   - Starting from index 0, greedily try joining segments with `/` and check if the path exists on disk
+   - Use the longest matching prefix that resolves to a real directory
+   - Example: `-Users-lsr-Documents-bitbucket-hybrid-image-search-demo` → try `/Users` ✓, `/Users/lsr` ✓, ..., `/Users/lsr/Documents/bitbucket/hybrid-image-search-demo` ✓ (stop, full match)
+   - Example with hyphens: segments `hybrid`, `image`, `search`, `demo` → try `hybrid-image-search-demo/` first (as single directory name), then `hybrid-image-search/demo/`, etc.
+4. Verify the mapped path is a git repository (`os.path.isdir(path / '.git')`)
+5. Detect repo type: parse `.git/config` or run `git remote get-url origin` — check for `github.com` vs `bitbucket.org`
 
 **Config override** (optional, in `config.yaml`):
 ```yaml
@@ -57,23 +64,41 @@ sessions:
 
 ### 2. Session Parser (`session_parser.py`)
 
-Reads JSONL files and applies smart extraction rules:
+Reads JSONL files and applies smart extraction rules.
 
-**Inclusion rules by message type:**
+**JSONL message format** (from Claude Code CLI):
+
+Each line is a JSON object with a top-level `type` field:
+- `"user"` — user messages. `obj["message"]["content"]` is either a plain string (user text) or a list containing `tool_result` dicts (with `tool_use_id`, `content`, `is_error` fields).
+- `"assistant"` — assistant messages. `obj["message"]["content"]` is a list of content blocks, each with `type` = `"thinking"`, `"text"`, or `"tool_use"`. Tool use blocks have `name` (e.g., `Bash`, `Edit`, `Write`, `Read`, `Grep`) and `input` dict.
+- `"system"` — system prompts/context injection. Excluded.
+- `"progress"` — hook events, agent progress, query updates. Excluded.
+- `"file-history-snapshot"` — file backup bookkeeping. Excluded.
+- `"queue-operation"` — internal queue management. Excluded.
+- `"last-prompt"` — session end marker. Excluded.
+
+Tool results appear as `tool_result` blocks inside the next `"user"` message, paired by `tool_use_id`. Error results have `is_error: true`.
+
+The `session_id` is the JSONL filename (UUID). Note: a resumed session creates a new JSONL file but may reference the same `sessionId` in message fields. We treat each JSONL file as a separate session for simplicity.
+
+**Inclusion rules by message/tool type:**
 
 | Message type | Include? | Extract |
 |---|---|---|
 | User text messages | Yes | Full text (narrative spine) |
-| Assistant text responses | Yes | Full text (decisions, explanations) |
+| Assistant text responses | Yes | Full text, max 1500 chars (decisions, explanations) |
 | Assistant thinking blocks | No | Internal reasoning, too noisy |
 | Edit/Write tool calls | Yes | File path + input (the diff/content) |
 | Bash tool calls with errors | Yes | Command + stderr/error output |
 | Bash tool calls (success) | Summary | Command only, not full output |
 | Read/Grep/Glob tool calls | No | Exploration, not narrative |
-| Progress/hook events | No | System noise |
-| Agent sub-tasks | Summary | Delegation description + result summary |
+| WebFetch/WebSearch tool calls | Summary | URL/query only (research context) |
+| Agent tool calls | Summary | Delegation description + result summary |
+| TodoWrite/Skill/ToolSearch | No | Internal bookkeeping |
+| MCP tools (`mcp__*`) | No | External tool noise |
+| Progress/hook/system events | No | System noise |
 | file-history-snapshot | No | System bookkeeping |
-| queue-operation | No | System bookkeeping |
+| queue-operation/last-prompt | No | System bookkeeping |
 
 **Key functions:**
 
@@ -96,12 +121,13 @@ def build_project_summary(project: ProjectInfo, hours: int) -> ProjectSummary:
 ```python
 @dataclass
 class ConversationEntry:
-    type: str          # "user_request" | "assistant_response" | "code_change" | "error" | "agent_summary"
+    type: str          # "user_request" | "assistant_response" | "code_change" | "error" | "command" | "research" | "agent_summary"
     timestamp: str     # ISO 8601
     text: str          # Message content or error text
     file: str | None   # For code_change entries
     action: str | None # "edit" | "write" | "delete" for code_change
-    command: str | None # For error entries (the bash command that failed)
+    command: str | None # For error and command entries (the bash command)
+    url: str | None    # For research entries (WebFetch/WebSearch URL or query)
 
 @dataclass
 class CommitInfo:
@@ -184,7 +210,8 @@ uv run log-blog sessions [OPTIONS]
 Options:
   --hours N        Time window (default: 24)
   --project NAME   Filter to one project (by auto-discovered name)
-  --all            Show all projects (default: only projects with 2+ sessions)
+  --all            Show all projects including those with only 1 session (default: 2+ sessions)
+  --include-short  Include very short sessions (<2 min or <3 messages), excluded by default
   --json           Output structured JSON (for skill pipeline)
   --list           Just list projects with session counts (no detail)
 ```
@@ -288,8 +315,36 @@ Sessions can be large. Limits to prevent context overflow:
 - **Conversation entries**: Max 100 entries per session (prioritize user_request, error, code_change)
 - **Code change text**: Max 2000 chars per entry (truncate with `[... truncated]`)
 - **Error output**: Max 1000 chars per entry
-- **Assistant responses**: Max 500 chars per entry (these are summaries, not the meat)
+- **Assistant responses**: Max 1500 chars per entry (keep explanatory narrative)
 - **Total output per project**: If `--json` output exceeds 100KB, further truncate assistant_response entries
+
+### 6. Config Integration
+
+Add to `config.py`:
+
+```python
+@dataclass
+class SessionsConfig:
+    claude_dir: str = "~/.claude/projects"
+    # Manual project overrides stored as a raw dict since
+    # nested dict[str, dataclass] doesn't fit _filter_fields pattern.
+    # Parsed manually in session_parser.py.
+```
+
+Add to `Config` dataclass:
+```python
+sessions: SessionsConfig = field(default_factory=SessionsConfig)
+```
+
+Add to `config.example.yaml`:
+```yaml
+sessions:
+  claude_dir: "~/.claude/projects"  # Where Claude Code stores session transcripts
+  # projects:                       # Optional overrides for auto-discovery
+  #   custom-name:
+  #     session_dir: "~/.claude/projects/-Users-lsr-some-weird-path"
+  #     repo_path: "~/Documents/actual/repo/path"
+```
 
 ## Files to Create/Modify
 
@@ -306,5 +361,6 @@ Sessions can be large. Limits to prevent context overflow:
 - **Session spans midnight**: Use session start_time for date grouping
 - **No git commits** (exploratory session): Still include conversation narrative, note "no commits"
 - **Repo not found** (deleted or moved): Skip git log, warn in output
-- **Very short sessions** (<2 minutes, <3 messages): Filter out by default, include with `--all`
-- **Worktree sessions**: Directory name contains worktree suffix — strip it for repo mapping
+- **Very short sessions** (<2 minutes, <3 messages): Filter out by default, include with `--include-short`
+- **Worktree sessions**: Directory name contains `--claude-worktrees-{name}` suffix — split on `--claude-worktrees-` and take the first part for repo mapping
+- **Resumed sessions**: Multiple JSONL files may share the same in-message `sessionId` — each JSONL file is treated as a separate session (using filename UUID as `session_id`)
