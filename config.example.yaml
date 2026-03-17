@@ -65,3 +65,12 @@ images:
   cover_enabled: true       # Set false to skip cover image generation
   taxonomy_enabled: true    # Set false to skip tag/category icon management
   # cover_font_path: ""     # Optional: custom font path (default: auto-detect Korean system font)
+
+# Claude Code session parsing for dev log blog posts.
+# Sessions are auto-discovered from ~/.claude/projects/ by default.
+sessions:
+  claude_dir: "~/.claude/projects"  # Where Claude Code stores session transcripts
+  # projects:                       # Optional overrides for auto-discovery (parsed manually)
+  #   custom-name:
+  #     session_dir: "~/.claude/projects/-Users-lsr-some-weird-path"
+  #     repo_path: "~/Documents/actual/repo/path"

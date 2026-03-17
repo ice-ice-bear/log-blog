@@ -106,6 +106,15 @@ class ImagesConfig:
 
 
 @dataclass
+class SessionsConfig:
+    claude_dir: str = "~/.claude/projects"
+
+    @property
+    def claude_dir_path(self) -> Path:
+        return Path(self.claude_dir).expanduser()
+
+
+@dataclass
 class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
     time_range_hours: int = 24
@@ -113,6 +122,7 @@ class Config:
     playwright: PlaywrightConfig = field(default_factory=PlaywrightConfig)
     accounts: AccountsConfig = field(default_factory=AccountsConfig)
     images: ImagesConfig = field(default_factory=ImagesConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
 
 
 def _find_config() -> Path | None:
@@ -179,4 +189,5 @@ def load_config(path: str | Path | None = None) -> Config:
             ),
         ),
         images=ImagesConfig(**_filter_fields(ImagesConfig, images_data)),
+        sessions=SessionsConfig(**_filter_fields(SessionsConfig, data.get("sessions", {}) or {})),
     )

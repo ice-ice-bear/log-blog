@@ -404,6 +404,94 @@ def cmd_chrome_cdp(args: argparse.Namespace) -> None:
         shutil.rmtree(cdp_dir, ignore_errors=True)
 
 
+def cmd_sessions(args: argparse.Namespace) -> None:
+    """Extract Claude Code session data for dev log blog posts."""
+    from dataclasses import asdict
+    from .session_parser import discover_projects, build_project_summary
+
+    config = load_config(args.config)
+    hours = args.hours or config.time_range_hours
+    claude_dir = config.sessions.claude_dir_path
+
+    min_sessions = 1 if args.all else 2
+    projects = discover_projects(
+        hours, claude_dir,
+        include_short=args.include_short,
+        min_sessions=min_sessions,
+    )
+
+    if not projects:
+        console.print("[yellow]No Claude Code sessions found in the given time range.[/yellow]")
+        return
+
+    if args.project:
+        projects = [p for p in projects if p.name == args.project]
+        if not projects:
+            console.print(f"[red]Project '{args.project}' not found.[/red]")
+            return
+
+    if args.list:
+        if args.json:
+            data = []
+            for p in projects:
+                summary = build_project_summary(p, hours, include_short=args.include_short)
+                data.append({
+                    "project_name": summary.project_name,
+                    "repo_path": summary.repo_path,
+                    "repo_type": summary.repo_type,
+                    "session_count": summary.session_count,
+                    "commit_count": len(summary.git_commits),
+                    "total_duration_minutes": summary.total_duration_minutes,
+                })
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+        else:
+            table = Table(title=f"Claude Code Sessions (last {hours}h)")
+            table.add_column("Project", min_width=15)
+            table.add_column("Sessions", justify="right", width=10)
+            table.add_column("Commits", justify="right", width=10)
+            table.add_column("Duration", justify="right", width=12)
+            table.add_column("Type", width=10)
+
+            for p in projects:
+                summary = build_project_summary(p, hours, include_short=args.include_short)
+                h, m = divmod(summary.total_duration_minutes, 60)
+                duration = f"{h}h {m:02d}m" if h else f"{m}m"
+                table.add_row(
+                    summary.project_name,
+                    str(summary.session_count),
+                    str(len(summary.git_commits)),
+                    duration,
+                    summary.repo_type,
+                )
+
+            console.print(table)
+        return
+
+    # Full detail mode
+    summaries = []
+    for p in projects:
+        summary = build_project_summary(p, hours, include_short=args.include_short)
+        summaries.append(summary)
+
+    if args.json:
+        data = [asdict(s) for s in summaries]
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+
+    for summary in summaries:
+        console.print(f"\n[bold blue]{summary.project_name}[/bold blue] ({summary.repo_type})")
+        console.print(f"  Sessions: {summary.session_count} | Commits: {len(summary.git_commits)} | Duration: {summary.total_duration_minutes}m")
+        console.print(f"  Repo: {summary.repo_path}")
+
+        if summary.git_commits:
+            console.print("  [green]Commits:[/green]")
+            for c in summary.git_commits[:10]:
+                console.print(f"    {c.sha} {c.message} (+{c.insertions}/-{c.deletions})")
+
+        if summary.files_changed:
+            console.print(f"  [dim]Files changed: {', '.join(summary.files_changed[:10])}[/dim]")
+
+
 def cmd_publish(args: argparse.Namespace) -> None:
     """Publish a markdown file to the blog repo."""
     from .image_handler import prepare_images
@@ -497,6 +585,16 @@ def main() -> None:
     p_cdp.add_argument("--port", type=int, help="CDP port (default: from config, usually 9222)")
     p_cdp.add_argument("--profile", help="Chrome profile folder name (default: 'Default')")
     p_cdp.set_defaults(func=cmd_chrome_cdp)
+
+    # sessions
+    p_sessions = subparsers.add_parser("sessions", help="Extract Claude Code session data for dev log blog posts")
+    p_sessions.add_argument("--hours", type=int, help="Time window (default: from config, usually 24)")
+    p_sessions.add_argument("--project", help="Filter to one project by name")
+    p_sessions.add_argument("--all", action="store_true", help="Include projects with only 1 session")
+    p_sessions.add_argument("--include-short", action="store_true", help="Include very short sessions (<2 min or <3 messages)")
+    p_sessions.add_argument("--json", action="store_true", help="Output structured JSON")
+    p_sessions.add_argument("--list", action="store_true", help="Quick overview: just project names and counts")
+    p_sessions.set_defaults(func=cmd_sessions)
 
     # publish
     p_pub = subparsers.add_parser("publish", help="Publish a markdown file to the blog repo")
