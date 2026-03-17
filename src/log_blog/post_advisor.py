@@ -18,6 +18,9 @@ class ExistingPost:
     tags: list[str]
     categories: list[str]
     content_preview: str  # first 300 chars of body text
+    series: str | None = None  # project identifier for dev log series
+    series_num: int | None = None  # 1-based sequence number
+    last_commit: str | None = None  # short SHA of last covered commit
 
 
 def scan_existing_posts(config: Config, limit: int = 30) -> list[ExistingPost]:
@@ -74,6 +77,8 @@ def _parse_post(path: Path) -> ExistingPost | None:
     else:
         date_str = str(date_val)[:10]
 
+    series_num_raw = fm.get("series_num")
+
     return ExistingPost(
         filename=path.name,
         path=str(path),
@@ -82,4 +87,7 @@ def _parse_post(path: Path) -> ExistingPost | None:
         tags=list(fm.get("tags", []) or []),
         categories=list(fm.get("categories", []) or []),
         content_preview=body.strip()[:300],
+        series=fm.get("series"),
+        series_num=int(series_num_raw) if series_num_raw is not None else None,
+        last_commit=fm.get("last_commit"),
     )
