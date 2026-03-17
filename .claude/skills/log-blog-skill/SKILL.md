@@ -391,3 +391,155 @@ git -C "$(uv run python -c "from log_blog.config import load_config; c = load_co
 - Every post needs at least one Mermaid diagram — see the diagram table in Step 5 for which type fits each section
 - For GitHub repos, consider running extra `gh` commands to get file trees or specific files for deeper analysis
 - Always include `--cover-title` and `--tags` in the publish command so images and icons are handled automatically
+
+---
+
+## Dev Log Mode
+
+When the user asks to "make a dev log", "write a dev log from sessions", "what did I work on today", or similar — use this mode instead of the Chrome history flow.
+
+### Step 1: List Projects
+
+```bash
+uv run log-blog sessions --list
+```
+
+Shows all Claude Code projects with sessions from the last 24 hours.
+
+### Step 1.5: Detect Series Continuation
+
+Run scan to find existing series posts:
+
+```bash
+uv run log-blog scan --json --limit 30
+```
+
+For each project from Step 1, check if a series already exists:
+
+1. Filter scan results: posts where `series` field matches the project name
+2. Sort matching posts by `series_num` DESC, take the highest
+3. Record: `prev_series_num`, `prev_last_commit`, `prev_filename`, `prev_date`
+
+**If previous series post found:**
+- `next_num = prev_series_num + 1`
+- When fetching session data in Step 3, filter commits:
+  - Reverse `git_commits` to chronological order (sessions returns newest-first)
+  - Find the commit where `sha.startswith(prev_last_commit)` (prefix match)
+  - Include only commits AFTER that index
+  - If `prev_last_commit` is not found (rebase/force push), fall back to date filtering:
+    include commits with timestamp >= `prev_date + 1 day 00:00 KST`
+  - If `prev_last_commit` is null but series exists, use the same date fallback
+- If zero new commits after filtering → report "already up to date", skip this project
+- Link to previous post: `[이전 글: #{prev_series_num}](/posts/{prev_filename without .md}/)`
+
+**If no previous series post found:**
+- `series_num = 1`
+- Include all commits from sessions output
+
+### Step 2: Present to User
+
+Show which projects they worked on, with series status:
+
+> "Today you worked on N projects:
+> - **trading-agent** (22 sessions, 12 commits, 8h 15m) — GitHub — **#5** (continues from #4, 8 new commits)
+> - **hybrid-search** (9 sessions, 5 commits, 3h 40m) — Bitbucket — **new series #1**
+> - **log-blog** (4 sessions, 3 commits, 2h) — GitHub — **already up to date** (0 new commits since #2)
+>
+> Which ones should get dev log posts?"
+
+Wait for user approval.
+
+### Step 3: Get Detailed Data
+
+For each approved project:
+
+```bash
+uv run log-blog sessions --project <name> --all --json
+```
+
+Returns structured JSON with:
+- **sessions**: conversation entries (user requests, code changes, errors, assistant responses)
+- **git_commits**: actual commits with sha, message, files, insertions/deletions
+- **files_changed**: all files touched across sessions
+
+### Step 4: Write the Dev Log Post
+
+Use the structured data to write a **narrative dev log** (problem → solution), not a topic overview.
+
+**Template:**
+
+```markdown
+---
+image: "/images/posts/YYYY-MM-DD-{slug}/cover.jpg"
+title: "Series Title #N — Descriptive Subtitle"
+description: Plain text summary for SEO
+date: YYYY-MM-DD
+series: "project-name"
+series_num: N
+last_commit: "abc1234"
+categories: ["category"]
+tags: ["tech1", "tech2"]
+toc: true
+math: false
+---
+
+## 개요
+What was built/fixed today. Link to previous post if sequential.
+
+<!--more-->
+
+---
+
+## [Problem/Feature Name]
+
+### 배경
+Why this work was needed (from user_request entries).
+
+### 구현
+What was done (from git commits + code_change entries).
+Include actual code snippets from diffs.
+
+### 문제 해결
+Debugging narrative (from error entries):
+"X를 시도 → Y 에러 → 원인: Z → 해결: ..."
+
+---
+
+## 커밋 로그
+
+| 메시지 | 변경 |
+|--------|------|
+| feat: add feature | +120 -30 |
+
+---
+
+## 인사이트
+Reflection connecting the day's work to broader patterns.
+```
+
+**Key rules:**
+- Must include at least one Mermaid diagram (architecture change or data flow)
+- Follow all mermaid safety rules (description, `<!--more-->`, `&lt;br/&gt;`, quote `/` labels)
+- Include actual error messages and debugging steps from the session data
+- Use code snippets from the actual diffs
+- Default language: Korean
+- Use `--filename "YYYY-MM-DD-{project-slug}.md"` to avoid collisions
+- Never show git commit SHA/IDs in commit log tables — use message and changed files only
+
+**Series frontmatter:** When writing the post, always set these fields:
+- `series`: the project name (from `sessions --list`)
+- `series_num`: the computed sequence number (from Step 1.5)
+- `last_commit`: the short SHA (first 7 chars) of the newest commit in the post's git_commits
+
+For sequential posts (#2+), add a link to the previous post in the 개요 section:
+> [이전 글: #{prev_num} — {prev_title}](/posts/{prev_filename_without_md}/)
+
+### Step 5: Publish
+
+Same as the standard publish flow:
+
+```bash
+uv run log-blog publish /tmp/log-blog-post.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "Post Title" --tags "tag1,tag2"
+```
+
+Series tracking is automatic via frontmatter fields (`series`, `series_num`, `last_commit`). The skill detects continuation in Step 1.5 — no manual checking needed.
