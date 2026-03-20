@@ -417,7 +417,14 @@ def cmd_sessions(args: argparse.Namespace) -> None:
     from .session_parser import discover_projects, build_project_summary
 
     config = load_config(args.config)
-    hours = args.hours or config.time_range_hours
+    if args.hours:
+        hours = args.hours
+    elif args.since_last_run:
+        from .run_state import hours_since_last_run
+        h = hours_since_last_run()
+        hours = h if h is not None else config.time_range_hours
+    else:
+        hours = config.time_range_hours
     claude_dir = config.sessions.claude_dir_path
 
     min_sessions = 1 if args.all else 2
@@ -598,6 +605,8 @@ def main() -> None:
     # sessions
     p_sessions = subparsers.add_parser("sessions", help="Extract Claude Code session data for dev log blog posts")
     p_sessions.add_argument("--hours", type=int, help="Time window (default: from config, usually 24)")
+    p_sessions.add_argument("--since-last-run", action="store_true",
+                            help="Use time since last run instead of fixed hours")
     p_sessions.add_argument("--project", help="Filter to one project by name")
     p_sessions.add_argument("--all", action="store_true", help="Include projects with only 1 session")
     p_sessions.add_argument("--include-short", action="store_true", help="Include very short sessions (<2 min or <3 messages)")
