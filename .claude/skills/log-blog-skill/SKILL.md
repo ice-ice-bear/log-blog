@@ -28,13 +28,22 @@ Then remind the user to edit `config.yaml` and set their `blog.repo_path` and `b
 
 ---
 
-## Step 1: Extract History
+## Step 1: Extract History & Sessions
+
+Run both commands simultaneously:
 
 ```bash
-uv run log-blog extract --json --hours 24
+uv run log-blog extract --json --since-last-run
 ```
 
-Adjust `--hours` if the user specifies a different range. This outputs a JSON array of `{url, title, visit_count, last_visit_time}`.
+```bash
+uv run log-blog sessions --list --since-last-run
+```
+
+Adjust `--hours N` if the user specifies a different range. The `--since-last-run` flag automatically calculates the time window from the last run. On first run, it falls back to the default 24 hours.
+
+The `extract` command outputs a JSON array of `{url, title, visit_count, last_visit_time, url_type}`.
+The `sessions --list` command shows a table of projects with session counts, commit counts, and duration.
 
 ---
 
@@ -58,6 +67,17 @@ Read the JSON output. Each entry now includes a `url_type` field from the classi
 - **Docs/Web** — documentation sites, blog posts, other web pages
 
 This grouping helps you plan the blog post structure and prioritize which entries deserve deep analysis.
+
+### Session-Based Projects
+
+For each project from `sessions --list` output, determine its dev log status:
+
+1. Check scan results (from Step 2.5) for existing series: posts where `series` field matches the project name
+2. If series exists:
+   - `next_num = highest series_num + 1`
+   - Note `prev_last_commit` and `prev_date` for commit filtering in Step 4
+3. If no series exists: `series_num = 1` (new series)
+4. Projects with zero sessions or only trivial activity can be skipped
 
 ---
 
@@ -117,6 +137,18 @@ Also state your **post action recommendation** from Step 2.5:
 Ask: *"Want to add/remove any entries, or change the post action before I fetch content?"*
 
 **Wait for explicit approval before proceeding.**
+
+**코드 기반 dev log 후보:**
+- **project-a** (N sessions, M commits, Xh Ym) — Type — **#K** (continues from #K-1, N new commits)
+- **project-b** (N sessions, M commits, Xh Ym) — Type — **new series #1**
+- **project-c** — **already up to date** (0 new commits since #K)
+
+Also state your post action recommendations for both browser-based and dev log posts together.
+
+After approval:
+- Browser-based items proceed to Step 4 (fetch content)
+- Dev log items proceed to Dev Log Mode Step 3 (get detailed session data with `sessions --project <name> --all --json`)
+- Both types can be written in parallel
 
 If the user frequently uses Claude.ai web chat or Claude Code, suggest:
 > "To include Claude conversations, export your data from claude.ai → Settings → Export, then run `uv run log-blog import-ai ~/path/to/claude-export.json`."
@@ -396,7 +428,9 @@ git -C "$(uv run python -c "from log_blog.config import load_config; c = load_co
 
 ## Dev Log Mode
 
-When the user asks to "make a dev log", "write a dev log from sessions", "what did I work on today", or similar — use this mode instead of the Chrome history flow.
+When the user explicitly asks to "make a dev log" or "write a dev log from sessions", use this mode for the detailed writing steps. In the unified flow (above), dev log projects are already identified in Step 1 and presented in Step 3. This section covers Steps 3-5: fetching detailed data, writing, and publishing.
+
+**If invoked standalone** (user asks only for dev logs, not the full pipeline): Run Step 1 of the main flow with `sessions --list --since-last-run` only (skip `extract`), then proceed to Step 3 presentation showing only dev log candidates.
 
 ### Step 1: List Projects
 
@@ -456,6 +490,20 @@ For each approved project:
 ```bash
 uv run log-blog sessions --project <name> --all --json
 ```
+
+**JSON structure note:** The `sessions --project` output is a JSON list. Use the first element:
+
+```
+data = json.load(output)
+project = data[0] if isinstance(data, list) else data
+commits = project["git_commits"]
+```
+
+Each commit has these fields: `sha`, `message`, `timestamp` (ISO 8601), `files`, `insertions`, `deletions`.
+
+**Commit filtering:** Use the `timestamp` field (not `date`) for time-based filtering:
+- Series continuation: find the commit where `sha.startswith(prev_last_commit)`, include only commits after that index
+- Date fallback: `c["timestamp"] >= "{prev_date}T00:00:00+09:00"` (KST)
 
 Returns structured JSON with:
 - **sessions**: conversation entries (user requests, code changes, errors, assistant responses)
