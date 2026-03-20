@@ -87,9 +87,15 @@ def _parse_frontmatter_tags(content: str) -> tuple[list[str], list[str]]:
 
 def cmd_extract(args: argparse.Namespace) -> None:
     """Extract and display browsing history."""
+    from .run_state import hours_since_last_run, save_last_run
+
     config = load_config(args.config)
     if args.hours:
         config.time_range_hours = args.hours
+    elif args.since_last_run:
+        h = hours_since_last_run()
+        if h is not None:
+            config.time_range_hours = h
 
     entries = read_history(config)
 
@@ -133,6 +139,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
 
     console.print(table)
     console.print(f"\n[green]Total: {len(entries)} entries[/green]")
+    save_last_run()
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
@@ -551,6 +558,8 @@ def main() -> None:
     # extract
     p_extract = subparsers.add_parser("extract", help="Extract browsing history")
     p_extract.add_argument("--hours", type=int, help="Override time range (hours)")
+    p_extract.add_argument("--since-last-run", action="store_true",
+                           help="Use time since last run instead of fixed hours")
     p_extract.add_argument("--json", action="store_true", help="Output as JSON")
     p_extract.add_argument("--include-noise", action="store_true", default=False,
                            help="Include AI landing/noise URLs in output")
