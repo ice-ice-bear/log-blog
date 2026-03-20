@@ -115,6 +115,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
                 "url_type": url_type.value,
             })
         print(json.dumps(data, ensure_ascii=False, indent=2))
+        save_last_run()
         return
 
     if not entries:
