@@ -103,12 +103,13 @@ async def _fetch_one(page, url: str, timeout_ms: int) -> PageContent:
 
 
 def _fetch_youtube(url: str) -> PageContent | None:
-    """Fetch YouTube content via transcript API."""
-    from .youtube_fetcher import fetch_youtube_transcript
+    """Fetch YouTube content via transcript API + oEmbed metadata."""
+    from .youtube_fetcher import fetch_youtube_transcript, _fetch_oembed
+    from .url_classifier import parse_youtube_id
 
     result = fetch_youtube_transcript(url)
     if result:
-        title = f"YouTube: {result['video_id']}"
+        title = result.get("title") or f"YouTube: {result['video_id']}"
         return PageContent(
             url=url,
             title=title,
@@ -117,7 +118,22 @@ def _fetch_youtube(url: str) -> PageContent | None:
             url_type=UrlType.YOUTUBE.value,
             metadata=result,
         )
-    # Transcript unavailable — return None to trigger Playwright fallback
+
+    # Transcript unavailable — try oEmbed for at least title/author metadata
+    video_id = parse_youtube_id(url)
+    if video_id:
+        oembed = _fetch_oembed(video_id)
+        if oembed.get("title"):
+            return PageContent(
+                url=url,
+                title=oembed["title"],
+                text_content=f"[Transcript unavailable]\n\nVideo: {oembed['title']}\nAuthor: {oembed.get('author_name', 'Unknown')}",
+                success=True,
+                url_type=UrlType.YOUTUBE.value,
+                metadata={"video_id": video_id, **oembed, "transcript_text": ""},
+            )
+
+    # No metadata available — fall back to Playwright
     return None
 
 

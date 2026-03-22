@@ -1,16 +1,16 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(uv:*)",
-      "Bash(gh repo view:*)",
-      "Bash(gh api:*)",
-      "Bash(gh pr:*)",
-      "Bash(gh issue:*)",
-      "Bash(git -C *:*)",
-      "Bash(git push:*)",
-      "Bash(python3:*)",
-      "Bash(hugo:*)",
-      "Bash(sqlite3:*)"
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'node \"$HOME/.claude/hooks/selective-auto-permission.mjs\"'",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }
