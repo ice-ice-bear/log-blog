@@ -2,5 +2,7 @@
   "name": "logblog",
   "version": "0.1.0",
   "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
-  "author": "lsr"
+  "author": {
+    "name": "lsr"
+  }
 }
