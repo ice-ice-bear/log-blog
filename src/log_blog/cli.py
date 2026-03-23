@@ -412,6 +412,78 @@ def cmd_chrome_cdp(args: argparse.Namespace) -> None:
         shutil.rmtree(cdp_dir, ignore_errors=True)
 
 
+def _check_series_updates(config) -> list[dict]:
+    """Check known series repos for new commits since last_commit.
+
+    Cross-references scan results (existing blog posts with series + last_commit)
+    against actual git repos to find projects with new commits, regardless of
+    session time window.
+
+    Returns list of dicts: {project_name, repo_path, repo_type, last_commit,
+                            new_commit_count, series_num}
+    """
+    from .post_advisor import scan_existing_posts
+    from .session_parser import extract_commits_since_sha, _detect_repo_type
+    from pathlib import Path
+
+    posts = scan_existing_posts(config, limit=50)
+
+    # Group by series, keep highest series_num per series
+    series_map: dict = {}
+    for post in posts:
+        if not post.series or not post.last_commit:
+            continue
+        existing = series_map.get(post.series)
+        if existing is None or (post.series_num or 0) > (existing.series_num or 0):
+            series_map[post.series] = post
+
+    # Check each series repo for new commits
+    updates = []
+    for series_name, post in series_map.items():
+        # Find the repo path — check common locations with case-insensitive match
+        repo_path = None
+        for base in [
+            Path.home() / "Documents" / "github",
+            Path.home() / "Documents" / "bitbucket",
+        ]:
+            if not base.is_dir():
+                continue
+            # Exact match first
+            candidate = base / series_name
+            if candidate.is_dir() and (candidate / ".git").is_dir():
+                repo_path = candidate
+                break
+            # Case-insensitive fallback
+            try:
+                for child in base.iterdir():
+                    if child.name.lower() == series_name.lower() and child.is_dir():
+                        if (child / ".git").is_dir():
+                            repo_path = child
+                            break
+            except PermissionError:
+                continue
+            if repo_path:
+                break
+
+        if repo_path is None:
+            continue
+
+        new_commits = extract_commits_since_sha(repo_path, post.last_commit)
+        if new_commits:
+            repo_type = _detect_repo_type(repo_path)
+            updates.append({
+                "project_name": series_name,
+                "repo_path": str(repo_path),
+                "repo_type": repo_type,
+                "last_commit": post.last_commit,
+                "new_commit_count": len(new_commits),
+                "series_num": (post.series_num or 0) + 1,
+                "prev_filename": post.filename,
+            })
+
+    return updates
+
+
 def cmd_sessions(args: argparse.Namespace) -> None:
     """Extract Claude Code session data for dev log blog posts."""
     from dataclasses import asdict
@@ -435,8 +507,26 @@ def cmd_sessions(args: argparse.Namespace) -> None:
         min_sessions=min_sessions,
     )
 
+    # Also check series repos for new commits since last_commit
+    series_updates = _check_series_updates(config)
+    discovered_names = {p.name for p in projects}
+
+    # Add series projects not already discovered via sessions
+    from .session_parser import ProjectInfo
+    from pathlib import Path
+    for update in series_updates:
+        if update["project_name"] not in discovered_names:
+            repo_path = Path(update["repo_path"])
+            projects.append(ProjectInfo(
+                name=update["project_name"],
+                session_dir=Path(""),  # no session dir
+                repo_path=repo_path,
+                repo_type=update["repo_type"],
+                session_files=[],  # no sessions — commit-only detection
+            ))
+
     if not projects:
-        console.print("[yellow]No Claude Code sessions found in the given time range.[/yellow]")
+        console.print("[yellow]No Claude Code sessions or series updates found.[/yellow]")
         return
 
     if args.project:
@@ -445,38 +535,65 @@ def cmd_sessions(args: argparse.Namespace) -> None:
             console.print(f"[red]Project '{args.project}' not found.[/red]")
             return
 
+    # Build a lookup for series updates
+    series_update_map = {u["project_name"]: u for u in series_updates}
+
     if args.list:
         if args.json:
             data = []
             for p in projects:
                 summary = build_project_summary(p, hours, include_short=args.include_short)
-                data.append({
+                entry = {
                     "project_name": summary.project_name,
                     "repo_path": summary.repo_path,
                     "repo_type": summary.repo_type,
                     "session_count": summary.session_count,
                     "commit_count": len(summary.git_commits),
                     "total_duration_minutes": summary.total_duration_minutes,
-                })
+                }
+                # Enrich with series info if available
+                su = series_update_map.get(summary.project_name)
+                if su:
+                    entry["series_update"] = {
+                        "last_commit": su["last_commit"],
+                        "new_commit_count": su["new_commit_count"],
+                        "next_series_num": su["series_num"],
+                        "prev_filename": su["prev_filename"],
+                    }
+                data.append(entry)
             print(json.dumps(data, ensure_ascii=False, indent=2))
         else:
-            table = Table(title=f"Claude Code Sessions (last {hours}h)")
+            table = Table(title=f"Claude Code Sessions & Series Updates")
             table.add_column("Project", min_width=15)
             table.add_column("Sessions", justify="right", width=10)
             table.add_column("Commits", justify="right", width=10)
             table.add_column("Duration", justify="right", width=12)
             table.add_column("Type", width=10)
+            table.add_column("Series", width=20)
 
             for p in projects:
                 summary = build_project_summary(p, hours, include_short=args.include_short)
                 h, m = divmod(summary.total_duration_minutes, 60)
                 duration = f"{h}h {m:02d}m" if h else f"{m}m"
+
+                su = series_update_map.get(summary.project_name)
+                if su:
+                    series_info = f"#{su['series_num']} (+{su['new_commit_count']} commits)"
+                else:
+                    series_info = "new"
+
+                # For commit-only projects (no sessions), show commit count from series
+                commit_count = len(summary.git_commits)
+                if commit_count == 0 and su:
+                    commit_count = su["new_commit_count"]
+
                 table.add_row(
                     summary.project_name,
                     str(summary.session_count),
-                    str(len(summary.git_commits)),
+                    str(commit_count),
                     duration,
                     summary.repo_type,
+                    series_info,
                 )
 
             console.print(table)
@@ -486,10 +603,33 @@ def cmd_sessions(args: argparse.Namespace) -> None:
     summaries = []
     for p in projects:
         summary = build_project_summary(p, hours, include_short=args.include_short)
+
+        # For series projects with no time-window commits, use SHA-based commits
+        su = series_update_map.get(summary.project_name)
+        if not summary.git_commits and su and p.repo_path:
+            from .session_parser import extract_commits_since_sha
+            summary.git_commits = extract_commits_since_sha(
+                p.repo_path, su["last_commit"]
+            )
+            for c in summary.git_commits:
+                summary.files_changed = sorted(
+                    set(summary.files_changed) | set(c.files)
+                )
+
         summaries.append(summary)
 
     if args.json:
         data = [asdict(s) for s in summaries]
+        # Enrich with series info
+        for i, summary in enumerate(summaries):
+            su = series_update_map.get(summary.project_name)
+            if su:
+                data[i]["series_update"] = {
+                    "last_commit": su["last_commit"],
+                    "new_commit_count": su["new_commit_count"],
+                    "next_series_num": su["series_num"],
+                    "prev_filename": su["prev_filename"],
+                }
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return
 

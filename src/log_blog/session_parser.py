@@ -531,6 +531,102 @@ def extract_git_commits(
     return commits
 
 
+def extract_commits_since_sha(
+    repo_path: Path,
+    last_commit_sha: str,
+) -> list[CommitInfo]:
+    """Get all commits after a given SHA (exclusive).
+
+    Used by series continuation detection: checks if a repo has new commits
+    since the last_commit recorded in a previous blog post, regardless of
+    any time window.
+
+    Returns commits in newest-first order. Returns empty list if SHA is not
+    found (e.g. after rebase/force-push) or if there are no new commits.
+    """
+    if not (repo_path / ".git").is_dir():
+        return []
+
+    # Check if the SHA exists in the repo
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "cat-file", "-t", last_commit_sha],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "last_commit %s not found in %s (rebase/force-push?)",
+                last_commit_sha, repo_path,
+            )
+            return []
+    except Exception:
+        return []
+
+    # Get commits after the SHA: HEAD..last_commit reversed = last_commit..HEAD
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "log",
+             f"{last_commit_sha}..HEAD",
+             "--format=%H|%s|%aI", "--shortstat"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+    except Exception as e:
+        logger.warning("git log since %s failed for %s: %s", last_commit_sha, repo_path, e)
+        return []
+
+    import re
+
+    commits: list[CommitInfo] = []
+    lines = result.stdout.strip().split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+
+        if "|" in line:
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                sha, message, timestamp = parts
+                insertions = deletions = 0
+
+                if i + 1 < len(lines):
+                    stat_line = lines[i + 1].strip()
+                    if "insertion" in stat_line or "deletion" in stat_line:
+                        ins_match = re.search(r"(\d+) insertion", stat_line)
+                        del_match = re.search(r"(\d+) deletion", stat_line)
+                        if ins_match:
+                            insertions = int(ins_match.group(1))
+                        if del_match:
+                            deletions = int(del_match.group(1))
+                        i += 1
+
+                try:
+                    files_result = subprocess.run(
+                        ["git", "-C", str(repo_path), "diff-tree",
+                         "--no-commit-id", "--name-only", "-r", sha],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    files = [f for f in files_result.stdout.strip().split("\n") if f]
+                except Exception:
+                    files = []
+
+                commits.append(CommitInfo(
+                    sha=sha[:8],
+                    message=message.strip(),
+                    timestamp=timestamp,
+                    files=files,
+                    insertions=insertions,
+                    deletions=deletions,
+                ))
+        i += 1
+
+    return commits
+
+
 # ---------------------------------------------------------------------------
 # Project summary builder
 # ---------------------------------------------------------------------------
