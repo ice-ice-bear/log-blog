@@ -1,0 +1,31 @@
+{
+  "name": "logblog",
+  "owner": {
+    "name": "ice-ice-bear"
+  },
+  "metadata": {
+    "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "logblog",
+      "source": "./",
+      "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
+      "version": "0.1.0",
+      "author": {
+        "name": "ice-ice-bear"
+      },
+      "repository": "https://github.com/ice-ice-bear/log-blog",
+      "license": "MIT",
+      "keywords": [
+        "blog",
+        "hugo",
+        "github-pages",
+        "chrome-history",
+        "dev-log"
+      ],
+      "category": "developer-tools"
+    }
+  ]
+}
