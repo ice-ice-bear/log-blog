@@ -4,7 +4,7 @@
     {
       "name": "hugo-blog",
       "runtimeExecutable": "hugo",
-      "runtimeArgs": ["server", "--buildDrafts", "--source", "/Users/lsr/Documents/github/ice-ice-bear.github.io"],
+      "runtimeArgs": ["server", "--buildDrafts", "--source", "~/Documents/github/your-blog-repo"],
       "port": 1313
     }
   ]

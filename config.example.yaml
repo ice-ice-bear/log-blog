@@ -46,16 +46,16 @@ accounts:
   # enabled: false skips the service entirely (its URLs won't be fetched at all).
   ai_chats:
     perplexity:
-      auth_profile: ""   # e.g. "wildboar7693@gmail.com"
+      auth_profile: ""   # e.g. "user@example.com"
       enabled: true
     chatgpt:
-      auth_profile: ""   # e.g. "wildboar7693@gmail.com"
+      auth_profile: ""   # e.g. "user@example.com"
       enabled: true
     claude:
-      auth_profile: ""   # e.g. "seungryul@wisdomgraph.ai"
+      auth_profile: ""   # e.g. "user@example.com"
       enabled: true
     gemini:
-      auth_profile: ""   # e.g. "wildboar7693@gmail.com" — Chrome account logged into gemini.google.com
+      auth_profile: ""   # e.g. "user@example.com" — Chrome account logged into gemini.google.com
       enabled: true
 
 # Image handling for blog posts.
@@ -72,5 +72,5 @@ sessions:
   claude_dir: "~/.claude/projects"  # Where Claude Code stores session transcripts
   # projects:                       # Optional overrides for auto-discovery (parsed manually)
   #   custom-name:
-  #     session_dir: "~/.claude/projects/-Users-lsr-some-weird-path"
+  #     session_dir: "~/.claude/projects/-Users-you-some-project-path"
   #     repo_path: "~/Documents/actual/repo/path"
