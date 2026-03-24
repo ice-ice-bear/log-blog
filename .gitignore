@@ -11,3 +11,4 @@ build/
 .claude/settings.local.json
 .playwright-mcp/
 .log-blog-state.json
+output/2026-03-20-harnesskit-dev1.md
