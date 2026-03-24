@@ -209,18 +209,32 @@ uv run log-blog import-ai ~/Downloads/Takeout/ --json --days 7
 Output matches `fetch --json` schema. Include it alongside fetch results when writing the post.
 Export instructions: ChatGPT → Settings → Data Controls → Export | Claude → Settings → Export data | Gemini → takeout.google.com
 
-The `fetch` command returns enriched data based on URL type:
-- **YouTube**: Full transcript text (Korean preferred, then English)
-- **GitHub repos**: Description, stars, languages, README content, recent commits
-- **GitHub PRs**: Title, state, body, diff stats (+/-/files), comments
-- **GitHub issues**: Title, state, labels, body, comments
-- **Bitbucket repos**: Description, language, README content (uses App Password from `config.yaml` if configured)
-- **Bitbucket PRs**: Title, state, author, source/destination branch, description
-- **AI chats (online)**: `url_type` = `ai_chat_perplexity` / `ai_chat_chatgpt` / `ai_chat_claude` / `ai_chat_gemini`, `metadata.source` = `"online"`, conversation Q&A transcript
-- **AI chats (offline)**: `url_type` = `ai_chat_export`, `metadata.source` = `"offline"`, `metadata.service` = `"chatgpt"` / `"claude"` / `"gemini"`
-- **Web pages**: Full text with headings hierarchy and code blocks
+The `fetch --json` command returns a JSON array. Each element has these keys:
 
-Each result includes `url_type` and `metadata` fields with structured data.
+```json
+{
+  "url": "https://...",
+  "title": "Page or video title",
+  "text_content": "The main content (transcript, README, article text, etc.)",
+  "success": true,
+  "error": null,
+  "url_type": "youtube | github_repo | github_pr | web_page | ...",
+  "metadata": { }
+}
+```
+
+**IMPORTANT**: The content field is `text_content`, NOT `content`. Always use `item["text_content"]` to access the fetched content.
+
+Content varies by URL type:
+- **YouTube**: `text_content` = full transcript (Korean preferred, then English). `metadata` includes `video_id`, `author_name`, `author_url`, `thumbnail_url`, `transcript_text`, `language`, `language_code`
+- **GitHub repos**: `text_content` = description + stars + languages + README. `metadata` includes `type`, `owner`, `repo`, `stars`, `forks`, `topics`, `languages`, `readme`, `recent_commits`
+- **GitHub PRs**: `text_content` = title + state + diff stats + body + comments. `metadata` includes `number`, `additions`, `deletions`, `changed_files`
+- **GitHub issues**: `text_content` = title + state + labels + body + comments
+- **Bitbucket repos**: `text_content` = description + language + README (uses App Password from `config.yaml` if configured)
+- **Bitbucket PRs**: `text_content` = state + author + branch + description
+- **AI chats (online)**: `url_type` = `ai_chat_perplexity` / `ai_chat_chatgpt` / `ai_chat_claude` / `ai_chat_gemini`, `metadata.source` = `"online"`, `text_content` = conversation Q&A transcript
+- **AI chats (offline)**: `url_type` = `ai_chat_export`, `metadata.source` = `"offline"`, `metadata.service` = `"chatgpt"` / `"claude"` / `"gemini"`
+- **Web pages**: `text_content` = full text with headings hierarchy and code blocks
 
 **For deeper GitHub analysis**, you can run additional `gh` CLI commands:
 ```bash
