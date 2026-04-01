@@ -12,8 +12,10 @@ time_range_hours: 24
 blog:
   repo_path: "~/Documents/github/your-blog-repo"  # REQUIRED: local path to your Hugo blog repo
   repo_url: "https://github.com/your-user/your-blog-repo.git"  # Used to clone if repo_path doesn't exist
-  content_dir: "content/posts"
-  language: "auto"  # "auto" (detect from Chrome), "ko", "en"
+  content_dir: "content/posts"            # fallback when no language match
+  language_content_dirs: {}               # Hugo multi-language: e.g. {ko: "content/ko/posts", en: "content/en/posts"}
+  default_language: "en"                  # used when --language is not specified
+  language: "auto"  # post language detection: "auto" (detect from Chrome), "ko", "en"
 
 playwright:
   headless: true
@@ -74,3 +76,10 @@ sessions:
   #   custom-name:
   #     session_dir: "~/.claude/projects/-Users-you-some-project-path"
   #     repo_path: "~/Documents/actual/repo/path"
+
+# Firecrawl deep docs fetching (optional).
+# When enabled, documentation URLs can be deep-crawled to fetch sub-pages
+# for more comprehensive blog posts. Get an API key at https://firecrawl.dev
+firecrawl:
+  api_key: "${FIRECRAWL_API_KEY}"  # Leave empty or unset to disable deep docs
+  max_pages: 10                     # Max pages to crawl per documentation URL
