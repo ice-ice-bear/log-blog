@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Browser history to tech blog pipeline"
 requires-python = ">=3.12"
 dependencies = [
+    "firecrawl-py",
     "pillow",
     "playwright",
     "pyyaml",
