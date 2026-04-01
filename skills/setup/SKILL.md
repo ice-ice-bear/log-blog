@@ -74,7 +74,8 @@ Ask these questions one at a time:
 
 1. **"What should your blog be called?"** (e.g., "My Tech Blog")
 2. **"What language? (en/ko, default: en)"**
-3. **"What's your GitHub username?"** — This determines the repo name: `{username}.github.io`
+3. **"Multi-language support? (y/n, default: n)"** — If yes, creates `content/{lang}/posts/` directory alongside `content/posts/` and sets `language_content_dirs` in config
+4. **"What's your GitHub username?"** — This determines the repo name: `{username}.github.io`
 
 ### Step 2: Install Hugo (if not found in Phase 1)
 
@@ -115,6 +116,8 @@ cd "{BLOG_DIR}"
 git init
 git submodule add https://github.com/CaiJimmy/hugo-theme-stack themes/stack
 mkdir -p content/posts
+# If multi-language was selected:
+# mkdir -p content/{language}/posts
 ```
 
 ### Step 4: Generate hugo.yaml
@@ -341,6 +344,26 @@ If found, read it to detect:
 - **content_dir** — `mainSections` in params, or default `"content/posts"`
 - **language** — `defaultContentLanguage` field
 
+### Step 2.5: Detect multi-language structure
+
+Check if the blog uses Hugo's i18n content directories:
+```bash
+ls -d "{path}/content/ko/posts" "{path}/content/en/posts" 2>/dev/null
+```
+
+If language-specific directories exist (e.g., `content/ko/posts/`, `content/en/posts/`):
+- Set `language_content_dirs` to map each detected language to its directory:
+  ```yaml
+  language_content_dirs:
+    ko: "content/ko/posts"
+    en: "content/en/posts"
+  ```
+- Set `default_language` based on `defaultContentLanguage` from Hugo config (default: `"en"`)
+- The `publish` command routes each post to the correct language directory via `--language`
+
+If no language directories found:
+- Set `language_content_dirs: {}` — single-language mode, posts go to `content_dir` only
+
 ### Step 3: Extract remote URL
 
 ```bash
@@ -379,6 +402,15 @@ Display them as a numbered list:
 gh api user --jq '.login' 2>/dev/null || echo ""
 ```
 
+### Step 2.5: Firecrawl API key (optional)
+
+Ask the user:
+> "Do you want to enable deep docs fetching? This uses Firecrawl to crawl documentation sub-pages for richer blog posts. It's optional — you can add it later."
+> "If yes, get a free API key at https://firecrawl.dev and paste it here. Press Enter to skip."
+
+If the user provides a key, store it for the config.yaml template.
+If skipped, leave `firecrawl.api_key` empty in the generated config.
+
 ### Step 3: Write config.yaml
 
 Write `config.yaml` in the log-blog project root with all values filled in:
@@ -397,6 +429,8 @@ blog:
   repo_path: "{repo_path}"
   repo_url: "{repo_url}"
   content_dir: "{detected_or_default}"
+  language_content_dirs: {detected_language_content_dirs}  # e.g. {ko: "content/ko/posts", en: "content/en/posts"}
+  default_language: "{default_language}"  # e.g. "en"
   language: "{language}"
 
 playwright:
@@ -431,6 +465,13 @@ images:
 
 sessions:
   claude_dir: "~/.claude/projects"
+
+# Firecrawl deep docs fetching (optional).
+# Deep-crawl documentation sites for guide-style blog posts.
+# Get an API key at https://firecrawl.dev
+firecrawl:
+  api_key: "{firecrawl_api_key_if_provided}"
+  max_pages: 10
 ```
 
 Key substitutions:
@@ -438,8 +479,11 @@ Key substitutions:
 - `blog.repo_path` — from Phase 3A (BLOG_DIR) or Phase 3B (user input)
 - `blog.repo_url` — from Phase 3A (gh output) or Phase 3B (git remote get-url)
 - `blog.content_dir` — from Phase 3B detection or default "content/posts"
+- `blog.language_content_dirs` — from Phase 3A (if multi-language) or Phase 3B Step 2.5, e.g. `{ko: "content/ko/posts", en: "content/en/posts"}`
+- `blog.default_language` — from Hugo `defaultContentLanguage` or user input (default: `"en"`)
 - `blog.language` — from Phase 3A user input or Phase 3B detection
 - `accounts.github.profile` — from Step 2
+- `firecrawl.api_key` — from Step 2.5 (empty if skipped)
 - `images.cover_enabled`, `images.taxonomy_enabled` — both true
 - `sessions.claude_dir` — "~/.claude/projects"
 
