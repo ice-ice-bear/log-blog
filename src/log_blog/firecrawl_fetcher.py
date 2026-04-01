@@ -58,8 +58,9 @@ def fetch_docs_deep(url: str, config: Config):
         client = Firecrawl(api_key=config.firecrawl.api_key)
 
         # Step 1: Map — discover sub-links on the docs site
+        # SDK returns MapData with .links list of LinkResult objects
         map_result = client.map(url=url, limit=100)
-        all_links = map_result.get("links", [])
+        all_links = [link.url for link in map_result.links] if map_result.links else []
 
         if not all_links:
             all_links = [url]
@@ -78,6 +79,7 @@ def fetch_docs_deep(url: str, config: Config):
         )
 
         # Step 3: Batch scrape
+        # SDK returns BatchScrapeJob with .data list of Document objects
         batch_result = client.batch_scrape(
             filtered,
             formats=["markdown"],
@@ -85,15 +87,15 @@ def fetch_docs_deep(url: str, config: Config):
         )
 
         # Step 4: Combine markdown from all pages
-        pages_data = batch_result.get("data", [])
+        pages_data = batch_result.data or []
         parts: list[str] = []
         sub_urls: list[str] = []
 
         for i, page in enumerate(pages_data):
-            markdown = page.get("markdown", "")
-            meta = page.get("metadata", {})
-            page_title = meta.get("title", f"Page {i + 1}")
-            page_url = meta.get("sourceURL", filtered[i] if i < len(filtered) else "")
+            markdown = page.markdown or ""
+            meta = page.metadata
+            page_title = getattr(meta, "title", None) or f"Page {i + 1}"
+            page_url = getattr(meta, "source_url", None) or (filtered[i] if i < len(filtered) else "")
 
             if markdown.strip():
                 parts.append(f"--- {page_title} ({page_url}) ---")
@@ -103,9 +105,13 @@ def fetch_docs_deep(url: str, config: Config):
 
         combined = "\n".join(parts)
 
+        first_title = url
+        if pages_data and pages_data[0].metadata:
+            first_title = getattr(pages_data[0].metadata, "title", url) or url
+
         return PageContent(
             url=url,
-            title=pages_data[0].get("metadata", {}).get("title", url) if pages_data else url,
+            title=first_title,
             text_content=combined,
             success=True,
             url_type="docs_page",

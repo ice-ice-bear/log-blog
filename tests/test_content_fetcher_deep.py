@@ -10,14 +10,20 @@ def test_fetch_pages_deep_routes_to_firecrawl(mock_fc_cls, mock_pw):
     """DOCS_PAGE URLs in deep_urls should go through Firecrawl, not Playwright."""
     mock_client = MagicMock()
     mock_fc_cls.return_value = mock_client
-    mock_client.map.return_value = {
-        "links": ["https://docs.example.com/guides/intro"]
-    }
-    mock_client.batch_scrape.return_value = {
-        "data": [
-            {"markdown": "# Guide\nContent here", "metadata": {"title": "Guide"}}
-        ]
-    }
+    # SDK returns typed objects, not dicts
+    mock_map_result = MagicMock()
+    link = MagicMock()
+    link.url = "https://docs.example.com/guides/intro"
+    mock_map_result.links = [link]
+    mock_client.map.return_value = mock_map_result
+
+    mock_batch_result = MagicMock()
+    doc = MagicMock()
+    doc.markdown = "# Guide\nContent here"
+    doc.metadata.title = "Guide"
+    doc.metadata.source_url = "https://docs.example.com/guides/intro"
+    mock_batch_result.data = [doc]
+    mock_client.batch_scrape.return_value = mock_batch_result
 
     config = Config(firecrawl=FirecrawlConfig(api_key="fc-test", max_pages=10))
     urls = ["https://docs.example.com/guides/intro"]

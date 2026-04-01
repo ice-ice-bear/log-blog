@@ -53,22 +53,29 @@ def test_fetch_docs_deep_success(mock_firecrawl_cls):
     mock_client = MagicMock()
     mock_firecrawl_cls.return_value = mock_client
 
-    # map returns links
-    mock_client.map.return_value = {
-        "links": [
-            "https://docs.example.com/guides/intro",
-            "https://docs.example.com/guides/setup",
-            "https://docs.example.com/api/ref",
-        ]
-    }
+    # map returns MapData with .links list of LinkResult objects
+    mock_map_result = MagicMock()
+    link1 = MagicMock()
+    link1.url = "https://docs.example.com/guides/intro"
+    link2 = MagicMock()
+    link2.url = "https://docs.example.com/guides/setup"
+    link3 = MagicMock()
+    link3.url = "https://docs.example.com/api/ref"
+    mock_map_result.links = [link1, link2, link3]
+    mock_client.map.return_value = mock_map_result
 
-    # batch_scrape returns page data
-    mock_client.batch_scrape.return_value = {
-        "data": [
-            {"markdown": "# Intro\nIntro content", "metadata": {"title": "Intro"}},
-            {"markdown": "# Setup\nSetup content", "metadata": {"title": "Setup"}},
-        ]
-    }
+    # batch_scrape returns BatchScrapeJob with .data list of Document objects
+    mock_batch_result = MagicMock()
+    doc1 = MagicMock()
+    doc1.markdown = "# Intro\nIntro content"
+    doc1.metadata.title = "Intro"
+    doc1.metadata.source_url = "https://docs.example.com/guides/intro"
+    doc2 = MagicMock()
+    doc2.markdown = "# Setup\nSetup content"
+    doc2.metadata.title = "Setup"
+    doc2.metadata.source_url = "https://docs.example.com/guides/setup"
+    mock_batch_result.data = [doc1, doc2]
+    mock_client.batch_scrape.return_value = mock_batch_result
 
     config = Config(firecrawl=FirecrawlConfig(api_key="fc-test", max_pages=10))
     result = fetch_docs_deep("https://docs.example.com/guides/intro", config)
