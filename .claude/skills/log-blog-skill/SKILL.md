@@ -124,7 +124,10 @@ Show the user a numbered list, grouped by type:
 2. [Title](url)
 
 **Docs/Web:**
-3. [Title](url)
+3. [Title](url) `[shallow]`
+4. [Title](url) `[shallow]`
+
+*Any docs entries you want me to deep-fetch? Deep mode crawls related sub-pages via Firecrawl for guide-style coverage. Just give me the numbers (e.g., "3, 4") or "none".*
 
 **Filtered out:**
 - [Title](url)
@@ -162,6 +165,20 @@ Take the approved URLs and run:
 ```bash
 uv run log-blog fetch --json "URL1" "URL2" "URL3"
 ```
+
+### Deep docs fetching
+
+For URLs the user selected for deep fetching, use the `--deep` flag:
+
+```bash
+uv run log-blog fetch --json --deep "DOCS_URL1" "DOCS_URL2"
+```
+
+Run shallow and deep fetches as separate commands — `--deep` applies to all URLs in that invocation. Combine the results.
+
+Deep-fetched docs return `metadata.source = "firecrawl"` and `metadata.pages_crawled` showing how many sub-pages were crawled. The `text_content` contains combined markdown from all crawled pages, separated by page headers.
+
+If Firecrawl is not configured (no API key), the command falls back to single-page Playwright fetch automatically.
 
 ### AI chat content — two paths
 
@@ -316,6 +333,13 @@ Remaining entries as a bullet list:
 - Extract and explain key concepts
 - Highlight code examples with context
 - Explain how this fits into the broader ecosystem
+
+**Docs (deep-fetched via Firecrawl):**
+- Synthesize all crawled pages into a cohesive guide section
+- Structure as: Overview → Key Concepts → Code Examples → Gotchas/Tips
+- Don't just summarize each page separately — weave them into a narrative
+- Reference specific sub-pages when citing details
+- Note the total pages crawled in the section intro (e.g., "Based on N pages from the official docs...")
 
 ### Enrichment Features
 
