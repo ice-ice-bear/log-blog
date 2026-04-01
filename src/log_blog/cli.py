@@ -148,9 +148,14 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     urls = args.urls
 
+    deep_urls = set(urls) if args.deep else None
+
     if not args.json:
-        console.print(f"[blue]Fetching {len(urls)} page(s)...[/blue]")
-    results = fetch_pages(urls, config)
+        if deep_urls:
+            console.print(f"[blue]Deep-fetching {len(urls)} page(s) via Firecrawl...[/blue]")
+        else:
+            console.print(f"[blue]Fetching {len(urls)} page(s)...[/blue]")
+    results = fetch_pages(urls, config, deep_urls=deep_urls)
 
     if args.json:
         data = [
@@ -691,6 +696,7 @@ def cmd_publish(args: argparse.Namespace) -> None:
     post_path = publish_post(
         content, filename, config,
         push=args.push, update=args.update, extra_paths=extra_paths,
+        language=args.language,
     )
     console.print(f"[green]{'Updated' if args.update else 'Published'} to {post_path}[/green]")
 
@@ -717,6 +723,8 @@ def main() -> None:
     p_fetch = subparsers.add_parser("fetch", help="Fetch page content from URLs")
     p_fetch.add_argument("urls", nargs="+", help="URLs to fetch")
     p_fetch.add_argument("--json", action="store_true", help="Output as JSON")
+    p_fetch.add_argument("--deep", action="store_true",
+                         help="Use Firecrawl to deep-crawl documentation sites (fetches sub-pages)")
     p_fetch.set_defaults(func=cmd_fetch)
 
     # profiles
@@ -764,6 +772,7 @@ def main() -> None:
     p_pub.add_argument("--cover-title", help="Post title for cover image generation (rendered on the image)")
     p_pub.add_argument("--tags", help="Comma-separated tags for taxonomy icon ensuring (e.g., 'python,fastapi')")
     p_pub.add_argument("--no-images", action="store_true", help="Skip cover image and taxonomy icon handling")
+    p_pub.add_argument("--language", help="Post language (e.g., 'ko', 'en'). Routes to the matching language_content_dirs entry. Defaults to blog.default_language.")
     p_pub.set_defaults(func=cmd_publish)
 
     args = parser.parse_args()
