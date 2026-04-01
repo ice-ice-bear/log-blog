@@ -46,8 +46,10 @@ class ChromeConfig:
 class BlogConfig:
     repo_path: str = ""
     repo_url: str = ""
-    content_dir: str = "content/posts"
-    language: str = "auto"
+    content_dir: str = "content/posts"  # fallback when no language match
+    language_content_dirs: dict[str, str] = field(default_factory=dict)  # e.g. {"ko": "content/ko/posts", "en": "content/en/posts"}
+    default_language: str = "en"
+    language: str = "auto"  # post language detection: "auto", "ko", "en"
 
     @property
     def repo_path_resolved(self) -> Path:
@@ -56,6 +58,13 @@ class BlogConfig:
     @property
     def content_path(self) -> Path:
         return self.repo_path_resolved / self.content_dir
+
+    def content_path_for(self, language: str | None = None) -> Path:
+        """Return the content directory for a specific language."""
+        lang = language or self.default_language
+        if lang in self.language_content_dirs:
+            return self.repo_path_resolved / self.language_content_dirs[lang]
+        return self.content_path
 
 
 @dataclass
@@ -115,6 +124,12 @@ class SessionsConfig:
 
 
 @dataclass
+class FirecrawlConfig:
+    api_key: str = ""
+    max_pages: int = 10
+
+
+@dataclass
 class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
     time_range_hours: int = 24
@@ -123,6 +138,7 @@ class Config:
     accounts: AccountsConfig = field(default_factory=AccountsConfig)
     images: ImagesConfig = field(default_factory=ImagesConfig)
     sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    firecrawl: FirecrawlConfig = field(default_factory=FirecrawlConfig)
 
 
 def _find_config() -> Path | None:
@@ -173,6 +189,11 @@ def load_config(path: str | Path | None = None) -> Config:
             svc["auth_profile"] = _resolve_env_vars(str(svc["auth_profile"]))
         return AiChatServiceConfig(**svc)
 
+    # Parse firecrawl config
+    firecrawl_data = dict(data.get("firecrawl", {}) or {})
+    if "api_key" in firecrawl_data:
+        firecrawl_data["api_key"] = _resolve_env_vars(str(firecrawl_data["api_key"]))
+
     return Config(
         chrome=ChromeConfig(**_filter_fields(ChromeConfig, chrome_data)),
         time_range_hours=data.get("time_range_hours", 24),
@@ -190,4 +211,5 @@ def load_config(path: str | Path | None = None) -> Config:
         ),
         images=ImagesConfig(**_filter_fields(ImagesConfig, images_data)),
         sessions=SessionsConfig(**_filter_fields(SessionsConfig, data.get("sessions", {}) or {})),
+        firecrawl=FirecrawlConfig(**_filter_fields(FirecrawlConfig, firecrawl_data)),
     )
