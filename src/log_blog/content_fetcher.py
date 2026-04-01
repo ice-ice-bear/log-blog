@@ -319,7 +319,11 @@ _AI_CHAT_TYPES = (UrlType.AI_CHAT_PERPLEXITY, UrlType.AI_CHAT_CHATGPT, UrlType.A
 _GITHUB_TYPES = (UrlType.GITHUB_REPO, UrlType.GITHUB_PR, UrlType.GITHUB_ISSUE)
 
 
-async def _fetch_batch(urls: list[str], config: Config) -> list[PageContent]:
+async def _fetch_batch(
+    urls: list[str],
+    config: Config,
+    deep_urls: set[str] | None = None,
+) -> list[PageContent]:
     """Fetch multiple pages, dispatching by URL type.
 
     Sync fetchers (YouTube, GitHub, Bitbucket) run in parallel via asyncio.to_thread.
@@ -364,6 +368,13 @@ async def _fetch_batch(urls: list[str], config: Config) -> list[PageContent]:
             elif url_type in _AI_CHAT_TYPES:
                 ai_chat_urls.append((url, url_type))
             else:
+                # Check if this is a deep docs request
+                if deep_urls and url in deep_urls and url_type == UrlType.DOCS_PAGE:
+                    from .firecrawl_fetcher import fetch_docs_deep
+                    fc_result = fetch_docs_deep(url, config)
+                    if fc_result is not None:
+                        results[url] = fc_result
+                        continue
                 pw_direct_urls.append(url)
 
         # --- Run sync fetchers in parallel via to_thread ---
@@ -448,6 +459,10 @@ async def _fetch_with_playwright(urls: list[str], config: Config) -> list[PageCo
     return list(results)
 
 
-def fetch_pages(urls: list[str], config: Config) -> list[PageContent]:
+def fetch_pages(
+    urls: list[str],
+    config: Config,
+    deep_urls: set[str] | None = None,
+) -> list[PageContent]:
     """Fetch page content for a list of URLs. Synchronous wrapper."""
-    return asyncio.run(_fetch_batch(urls, config))
+    return asyncio.run(_fetch_batch(urls, config, deep_urls=deep_urls))
