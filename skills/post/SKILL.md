@@ -369,17 +369,45 @@ If a section genuinely cannot support a diagram (e.g., a single link with no str
 - Include specific details: function names, config options, version numbers
 - Highlight connections between different topics explored
 - Default language: Korean. Use English only if user's browsing was primarily English.
+- **Important:** When publishing, pass `--language ko` for Korean posts and `--language en` for English posts. This routes the post to the correct Hugo content directory.
 - For Korean posts, use Korean section headers and body text, but keep code/technical terms in English
+
+---
+
+## Step 5.5: Translate the Post (You — Claude — Do This)
+
+After writing the original post (typically Korean), generate an English translation by **rewriting for an English-speaking audience** — not literal translation.
+
+### Translation Guidelines
+
+- **Rewrite, don't translate** — restructure sentences for natural English flow
+- **Technical terms** follow English conventions (e.g., 분산 추적 → distributed tracing, 공급망 공격 → supply chain attack)
+- **Translate**: `title`, `description` in frontmatter, all body text, Mermaid diagram labels, section headers
+- **Keep unchanged**: `tags`, `categories`, `date`, `image`, `series`, `series_num`, `last_commit`, code blocks, URLs, CLI commands
+- **Mermaid safety rules still apply** in the English version — `&lt;br/&gt;`, quoted `/` labels, `description` frontmatter, `<!--more-->`
+
+Save both versions as separate temp files:
+```bash
+cat > /tmp/log-blog-post-ko.md << 'POSTEOF'
+(Korean original)
+POSTEOF
+
+cat > /tmp/log-blog-post-en.md << 'POSTEOF'
+(English rewrite)
+POSTEOF
+```
+
+If the original post was written in English, generate a Korean translation instead using the same guidelines in reverse.
 
 ---
 
 ## Step 6: User Reviews the Post
 
-Show the complete generated markdown to the user. Ask:
+Show both the Korean and English versions to the user. Ask:
 
-*"Here's the draft post. Want me to change anything before publishing?"*
+*"Here are the Korean and English versions. Want me to change anything before publishing?"*
 
-Apply any edits the user requests. Repeat until they approve.
+Apply any edits the user requests to either version. Repeat until they approve both.
 
 ---
 
@@ -388,29 +416,48 @@ Apply any edits the user requests. Repeat until they approve.
 Once the user approves the post, save it to a file and publish using the action decided in Step 2.5:
 
 ```bash
-# Write the post to a temp file
-cat > /tmp/log-blog-post.md << 'POSTEOF'
-(paste the full markdown content here)
+# Write both versions to temp files
+cat > /tmp/log-blog-post-ko.md << 'POSTEOF'
+(paste the full Korean markdown content here)
+POSTEOF
+
+cat > /tmp/log-blog-post-en.md << 'POSTEOF'
+(paste the full English markdown content here)
 POSTEOF
 ```
 
-**For `new` or `sequential`** — publish with the new date-based filename, including image flags:
+**For `new` or `sequential`** — publish both versions sequentially. Korean first (generates cover image), then English (reuses same image):
+
+**Korean version** (generates cover image + taxonomy icons):
 ```bash
-uv run log-blog publish /tmp/log-blog-post.md --cover-title "Post Title Here" --tags "tag1,tag2,tag3"
-# For sequential, override the title via --filename if needed:
-# uv run log-blog publish /tmp/log-blog-post.md --filename 2026-02-20-tech-log.md --cover-title "Post Title" --tags "tag1,tag2"
+uv run log-blog publish /tmp/log-blog-post-ko.md --cover-title "Korean Title" --tags "tag1,tag2,tag3" --language ko
 ```
 
-**For `update`** — overwrite the existing post file with the updated content:
+**English version** (skips image generation — already created above):
 ```bash
-uv run log-blog publish /tmp/log-blog-post.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3"
+uv run log-blog publish /tmp/log-blog-post-en.md --cover-title "English Title" --tags "tag1,tag2,tag3" --language en --no-images
 ```
+
+**Important:** Both versions MUST use the same `--filename` (or default filename) so Hugo links them as translations. The language switcher will appear automatically on the published post.
+
+**For `update`** — add `--update` flag to both commands:
+```bash
+uv run log-blog publish /tmp/log-blog-post-ko.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3" --language ko
+uv run log-blog publish /tmp/log-blog-post-en.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3" --language en --no-images
+```
+
+**Language routing:** The `--language` flag determines which content directory the post is written to:
+- `--language ko` → `content/ko/posts/` (configured in `language_content_dirs`)
+- `--language en` → `content/en/posts/`
+- If omitted, defaults to `blog.default_language` (typically `"en"`)
+- If no matching `language_content_dirs` entry exists, falls back to `content_dir`
 The `--update` flag changes the commit message to `"Update tech log: ..."`. Cover images are skipped if already present.
 
 The publish command automatically:
 
 - Generates a cover image with gradient, title, and tag pills using Pillow (if `--cover-title` is provided)
 - Ensures SVG icons and `_index.md` files exist for each tag/category in the blog repo
+- Routes the post to the correct language directory via `--language` flag (e.g., `--language ko` → `content/ko/posts/`)
 - Includes all new image/taxonomy files in the git commit
 
 Use `--no-images` to skip all image handling.
@@ -598,10 +645,11 @@ For sequential posts (#2+), add a link to the previous post in the 개요 sectio
 
 ### Step 5: Publish
 
-Same as the standard publish flow:
+Same as the standard publish flow — publish both Korean and English versions:
 
 ```bash
-uv run log-blog publish /tmp/log-blog-post.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "Post Title" --tags "tag1,tag2"
+uv run log-blog publish /tmp/log-blog-post-ko.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "Korean Title" --tags "tag1,tag2" --language ko
+uv run log-blog publish /tmp/log-blog-post-en.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "English Title" --tags "tag1,tag2" --language en --no-images
 ```
 
 Series tracking is automatic via frontmatter fields (`series`, `series_num`, `last_commit`). The skill detects continuation in Step 1.5 — no manual checking needed.
