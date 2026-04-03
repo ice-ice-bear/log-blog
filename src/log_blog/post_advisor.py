@@ -24,20 +24,28 @@ class ExistingPost:
 
 
 def scan_existing_posts(config: Config, limit: int = 30) -> list[ExistingPost]:
-    """Scan blog repo content dir for existing posts, returning newest first.
+    """Scan blog repo content dirs for existing posts, returning newest first.
 
-    Reads all .md files in the configured content directory, parses YAML
-    frontmatter from each, and returns structured post metadata.
+    Scans the primary content directory and all language_content_dirs.
+    Deduplicates by filename (same post in multiple dirs counts once).
     """
-    posts_dir = config.blog.content_path
-    if not posts_dir.exists():
-        return []
+    all_dirs = [config.blog.content_path]
+    for lang_dir in config.blog.language_content_dirs.values():
+        p = config.blog.repo_path_resolved / lang_dir
+        if p not in all_dirs:
+            all_dirs.append(p)
 
-    md_files = sorted(
-        posts_dir.glob("*.md"),
-        key=lambda f: f.stat().st_mtime,
-        reverse=True,
-    )
+    seen_filenames: set[str] = set()
+    all_md_files: list[Path] = []
+    for posts_dir in all_dirs:
+        if not posts_dir.exists():
+            continue
+        for f in posts_dir.glob("*.md"):
+            if f.name not in seen_filenames:
+                seen_filenames.add(f.name)
+                all_md_files.append(f)
+
+    md_files = sorted(all_md_files, key=lambda f: f.stat().st_mtime, reverse=True)
 
     posts: list[ExistingPost] = []
     for md_file in md_files[:limit]:

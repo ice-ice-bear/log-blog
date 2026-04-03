@@ -59,6 +59,7 @@ def publish_post(
     push: bool = False,
     update: bool = False,
     extra_paths: list[Path] | None = None,
+    language: str | None = None,
 ) -> Path:
     """Write a post file to the blog repo, commit, and optionally push.
 
@@ -69,12 +70,14 @@ def publish_post(
         push: Whether to git push after committing.
         update: Whether this is an update to an existing post (changes commit message).
         extra_paths: Additional files to git add (cover images, taxonomy icons, _index.md).
+        language: Post language (e.g., "ko", "en"). Routes to the matching
+                  language_content_dirs entry. Falls back to content_dir.
 
     Returns:
         Path to the written file.
     """
     repo_path = ensure_repo(config)
-    content_dir = config.blog.content_path
+    content_dir = config.blog.content_path_for(language)
     content_dir.mkdir(parents=True, exist_ok=True)
 
     post_path = content_dir / filename

@@ -73,8 +73,8 @@ Ask the user:
 Ask these questions one at a time:
 
 1. **"What should your blog be called?"** (e.g., "My Tech Blog")
-2. **"What language? (en/ko, default: en)"**
-3. **"Multi-language support? (y/n, default: n)"** — If yes, creates `content/{lang}/posts/` directory alongside `content/posts/` and sets `language_content_dirs` in config
+2. **"What's your primary language? (en/ko, default: en)"**
+3. **"Multi-language support? (y/n, default: n)"** — If yes, ask: **"Which languages? (comma-separated, e.g., en,ko)"**. This creates `content/{lang}/posts/` directories for each language, adds a `languages:` block to `hugo.yaml`, and sets `language_content_dirs` in log-blog's config.
 4. **"What's your GitHub username?"** — This determines the repo name: `{username}.github.io`
 
 ### Step 2: Install Hugo (if not found in Phase 1)
@@ -115,9 +115,17 @@ hugo new site "{BLOG_DIR}"
 cd "{BLOG_DIR}"
 git init
 git submodule add https://github.com/CaiJimmy/hugo-theme-stack themes/stack
+```
+
+**If multi-language was selected** — create a directory for each language:
+```bash
+mkdir -p content/en/posts content/ko/posts
+# Add more languages as needed (e.g., content/ja/posts)
+```
+
+**If single-language** — use the flat structure:
+```bash
 mkdir -p content/posts
-# If multi-language was selected:
-# mkdir -p content/{language}/posts
 ```
 
 ### Step 4: Generate hugo.yaml
@@ -133,7 +141,9 @@ Detect system timezone:
 readlink /etc/localtime | sed 's|.*/zoneinfo/||'
 ```
 
-Write `hugo.yaml` with these values (substitute `{blog_title}`, `{language}`, `{username}`, `{timezone}`, `{current_year}`):
+Write `hugo.yaml` with these values (substitute `{blog_title}`, `{language}`, `{username}`, `{timezone}`, `{current_year}`).
+
+**If single-language:**
 
 ```yaml
 baseURL: "https://{username}.github.io/"
@@ -189,7 +199,120 @@ markup:
 
 If language is `en`, set `hasCJKLanguage: false`.
 
+**If multi-language** — add a `languages:` block. The `menu` entries must go inside each language (Hugo does not merge top-level `menu:` with per-language menus). Each language gets its own `contentDir`, menu labels, and `hasCJKLanguage` flag.
+
+Example for en + ko (adapt language names, menu labels, and URL prefixes for other combinations):
+
+```yaml
+baseURL: "https://{username}.github.io/"
+title: "{blog_title}"
+theme: stack
+paginate: 10
+languageCode: {primary_language}
+defaultContentLanguage: {primary_language}
+timezone: "{timezone}"
+
+params:
+  mainSections:
+    - posts
+  featuredImageField: image
+  rssFullContent: true
+  favicon: /images/profile.png
+  footer:
+    since: {current_year}
+  dateFormat:
+    published: "2006-01-02"
+    lastUpdated: "2006-01-02 15:04"
+  colorScheme:
+    toggle: true
+    default: auto
+  sidebar:
+    compact: false
+    emoji: ""
+    subtitle: ""
+  article:
+    math: true
+    toc: true
+    readingTime: true
+    license:
+      enabled: false
+  widgets:
+    homepage:
+      - type: search
+      - type: archives
+      - type: tag-cloud
+
+languages:
+  en:
+    languageName: English
+    weight: 1
+    contentDir: content/en
+    menu:
+      main:
+        - identifier: posts
+          name: Posts
+          url: /posts/
+          weight: 10
+          params:
+            icon: archives
+        - identifier: categories
+          name: Categories
+          url: /categories/
+          weight: 20
+          params:
+            icon: categories
+        - identifier: tags
+          name: Tags
+          url: /tags/
+          weight: 30
+          params:
+            icon: tag
+      social: []
+  ko:
+    languageName: 한국어
+    weight: 2
+    contentDir: content/ko
+    hasCJKLanguage: true
+    menu:
+      main:
+        - identifier: posts
+          name: 포스트
+          url: /ko/posts/
+          weight: 10
+          params:
+            icon: archives
+        - identifier: categories
+          name: 카테고리
+          url: /ko/categories/
+          weight: 20
+          params:
+            icon: categories
+        - identifier: tags
+          name: 태그
+          url: /ko/tags/
+          weight: 30
+          params:
+            icon: tag
+      social: []
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+  highlight:
+    noClasses: false
+```
+
+**Key multi-language rules:**
+- The default language (e.g., `en`) serves pages at the root (`/posts/`). Non-default languages get a prefix (`/ko/posts/`).
+- Each language's `contentDir` maps to its content directory (e.g., `content/en`, `content/ko`).
+- Menu URLs must include the language prefix for non-default languages.
+- `hasCJKLanguage: true` should be set on CJK language entries (ko, ja, zh), not globally.
+- There is no top-level `menu:` when using `languages:` — all menus go inside each language block.
+
 ### Step 4.5: Create initial content
+
+**If single-language:**
 
 Write `content/posts/_index.md`:
 ```markdown
@@ -210,6 +333,58 @@ categories: ["general"]
 
 Welcome to my blog! This site was set up with [logblog](https://github.com/ice-ice-bear/log-blog).
 ```
+
+**If multi-language** — create `_index.md` and hello-world post in each language directory. Use localized titles and content:
+
+For each language directory (e.g., `content/en/posts/`, `content/ko/posts/`):
+
+```bash
+# English
+mkdir -p "{BLOG_DIR}/content/en/posts"
+```
+Write `content/en/posts/_index.md`:
+```markdown
+---
+title: "Posts"
+---
+```
+Write `content/en/posts/hello-world.md`:
+```markdown
+---
+title: "Hello World"
+description: "First post on my new blog"
+date: {today}
+tags: ["blog"]
+categories: ["general"]
+---
+
+Welcome to my blog! This site was set up with [logblog](https://github.com/ice-ice-bear/log-blog).
+```
+
+```bash
+# Korean
+mkdir -p "{BLOG_DIR}/content/ko/posts"
+```
+Write `content/ko/posts/_index.md`:
+```markdown
+---
+title: "포스트"
+---
+```
+Write `content/ko/posts/hello-world.md`:
+```markdown
+---
+title: "안녕하세요"
+description: "새 블로그의 첫 포스트입니다"
+date: {today}
+tags: ["blog"]
+categories: ["general"]
+---
+
+블로그에 오신 것을 환영합니다! 이 사이트는 [logblog](https://github.com/ice-ice-bear/log-blog)로 구축되었습니다.
+```
+
+**Important:** Both language versions use the **same filename** (`hello-world.md`). Hugo matches translations by filename — the language switcher only appears when both `content/en/posts/hello-world.md` and `content/ko/posts/hello-world.md` exist.
 
 ### Step 5: GitHub Actions workflow
 
@@ -352,14 +527,28 @@ ls -d "{path}/content/ko/posts" "{path}/content/en/posts" 2>/dev/null
 ```
 
 If language-specific directories exist (e.g., `content/ko/posts/`, `content/en/posts/`):
-- Set `language_content_dirs` to map each detected language to its directory:
-  ```yaml
-  language_content_dirs:
-    ko: "content/ko/posts"
-    en: "content/en/posts"
-  ```
-- Set `default_language` based on `defaultContentLanguage` from Hugo config (default: `"en"`)
-- The `publish` command routes each post to the correct language directory via `--language`
+
+1. **Verify Hugo config has a `languages:` block** — read the Hugo config file and check for a `languages:` section:
+   ```bash
+   grep -c "^languages:" "{path}/hugo.yaml" "{path}/hugo.toml" "{path}/config.toml" 2>/dev/null
+   ```
+   
+   If the directories exist but `languages:` is **missing from Hugo config**, warn the user:
+   > "Your blog has language directories (`content/en/`, `content/ko/`) but Hugo's config is missing the `languages:` block. Without it, Hugo ignores the language-specific directories and the language switcher won't work."
+   > "Want me to add the `languages:` block to your Hugo config? (y/n)"
+   
+   If yes, read the existing Hugo config and add the `languages:` block following the multi-language template from Phase 3A Step 4. Preserve all existing settings — only add the `languages:` section and remove the top-level `menu:` (which moves into each language block).
+
+2. **Set `language_content_dirs`** in log-blog config:
+   ```yaml
+   language_content_dirs:
+     ko: "content/ko/posts"
+     en: "content/en/posts"
+   ```
+
+3. **Set `default_language`** based on `defaultContentLanguage` from Hugo config (default: `"en"`)
+
+4. The `publish` command routes each post to the correct language directory via `--language`
 
 If no language directories found:
 - Set `language_content_dirs: {}` — single-language mode, posts go to `content_dir` only
