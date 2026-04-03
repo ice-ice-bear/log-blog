@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _SPA_WAIT_MS = 3000   # extra wait after page load for SPA hydration
 _MAX_CONTENT = 12000  # chars — AI conversations can be very long
 _DEFAULT_CDP_PORT = 9222
+_NAV_RETRIES = 2      # retry count for CDP navigation race conditions
 
 
 async def fetch_ai_chat(
@@ -80,7 +81,23 @@ async def fetch_ai_chat(
 
             page = await context.new_page()
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                # CDP navigation can race with existing tabs — retry on interruption
+                last_err = None
+                for attempt in range(_NAV_RETRIES + 1):
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                        last_err = None
+                        break
+                    except Exception as nav_err:
+                        last_err = nav_err
+                        if attempt < _NAV_RETRIES and "interrupted" in str(nav_err).lower():
+                            logger.debug("CDP navigation interrupted (attempt %d), retrying", attempt + 1)
+                            await page.wait_for_timeout(500)
+                        else:
+                            raise
+                if last_err:
+                    raise last_err
+
                 await page.wait_for_timeout(_SPA_WAIT_MS)
 
                 title = await page.title()
@@ -99,7 +116,11 @@ async def fetch_ai_chat(
                     await browser.close()
 
     except Exception as e:
-        logger.warning("AI chat fetch failed for %s: %s", url, e)
+        logger.warning(
+            "AI chat fetch failed for %s (%s): %s. "
+            "Ensure Chrome is running with: uv run log-blog chrome-cdp",
+            url, service, e,
+        )
         return None
 
 

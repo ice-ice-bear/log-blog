@@ -90,6 +90,7 @@ _AI_NOISE_PATTERNS = [
     re.compile(r"gemini\.google\.com/app/(?:download|extensions|settings)(?:/|[?#]|$)"),
     re.compile(r"gemini\.google\.com/(?:app)?/?(?:[?#]|$)"),
     re.compile(r"perplexity\.ai/?(?:[?#]|$)"),
+    re.compile(r"perplexity\.ai/search/new(?:[?#]|$)"),  # "new search" landing page
 ]
 
 # Docs patterns

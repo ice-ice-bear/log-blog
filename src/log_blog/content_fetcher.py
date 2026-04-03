@@ -187,6 +187,11 @@ async def _fetch_ai_chat_online(
         auth_required=bool(service_cfg.auth_profile),
     )
     if not result:
+        logger.warning(
+            "AI chat fetch returned no content for %s (%s). "
+            "Run 'uv run log-blog chrome-cdp' first for authenticated fetching.",
+            url, service_name,
+        )
         return None
 
     return PageContent(
