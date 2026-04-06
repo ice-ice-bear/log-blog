@@ -383,7 +383,8 @@ After writing the original post (typically English), generate a Korean translati
 - **Rewrite, don't translate** — restructure sentences for natural Korean flow
 - **Technical terms** keep English where conventional in Korean tech writing (e.g., distributed tracing, supply chain attack), but explain in Korean context
 - **Translate**: `title`, `description` in frontmatter, all body text, Mermaid diagram labels, section headers
-- **Keep unchanged**: `tags`, `categories`, `date`, `image`, `series`, `series_num`, `last_commit`, code blocks, URLs, CLI commands
+- **Keep unchanged**: `tags`, `categories`, `date`, `series`, `series_num`, `last_commit`, code blocks, URLs, CLI commands
+- **Update `image:`**: Change the cover filename to match the target language — e.g., `cover-en.jpg` → `cover-ko.jpg` (the publisher auto-injects the correct path, but if you set it manually in frontmatter, use `cover-{lang}.jpg`)
 - **Mermaid safety rules still apply** in the Korean version — `&lt;br/&gt;`, quoted `/` labels, `description` frontmatter, `<!--more-->`
 
 Save both versions as separate temp files:
@@ -426,24 +427,24 @@ cat > /tmp/log-blog-post-ko.md << 'POSTEOF'
 POSTEOF
 ```
 
-**For `new` or `sequential`** — publish both versions sequentially. English first (generates cover image), then Korean (reuses same image):
+**For `new` or `sequential`** — publish both versions with separate cover images. Each language gets its own cover with the localised title:
 
-**English version** (generates cover image + taxonomy icons):
+**English version** (generates `cover-en.jpg` + taxonomy icons):
 ```bash
 uv run log-blog publish /tmp/log-blog-post-en.md --cover-title "English Title" --tags "tag1,tag2,tag3" --language en
 ```
 
-**Korean version** (skips image generation — already created above):
+**Korean version** (generates `cover-ko.jpg` — separate image with Korean title):
 ```bash
-uv run log-blog publish /tmp/log-blog-post-ko.md --cover-title "Korean Title" --tags "tag1,tag2,tag3" --language ko --no-images
+uv run log-blog publish /tmp/log-blog-post-ko.md --cover-title "Korean Title" --tags "tag1,tag2,tag3" --language ko
 ```
 
-**Important:** Both versions MUST use the same `--filename` (or default filename) so Hugo links them as translations. The language switcher will appear automatically on the published post.
+**Important:** Both versions MUST use the same `--filename` (or default filename) so Hugo links them as translations. The language switcher will appear automatically on the published post. Each language version gets its own cover image file (`cover-en.jpg`, `cover-ko.jpg`) with the localised title rendered on it.
 
 **For `update`** — add `--update` flag to both commands:
 ```bash
 uv run log-blog publish /tmp/log-blog-post-en.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3" --language en
-uv run log-blog publish /tmp/log-blog-post-ko.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3" --language ko --no-images
+uv run log-blog publish /tmp/log-blog-post-ko.md --filename EXISTING-FILENAME.md --update --tags "tag1,tag2,tag3" --language ko
 ```
 
 **Language routing:** The `--language` flag determines which content directory the post is written to:
@@ -455,16 +456,16 @@ The `--update` flag changes the commit message to `"Update tech log: ..."`. Cove
 
 The publish command automatically:
 
-- Generates a cover image with gradient, title, and tag pills using Pillow (if `--cover-title` is provided)
+- Generates a **per-language cover image** (`cover-{lang}.jpg`) with gradient, title, and tag pills using Pillow (if `--cover-title` and `--language` are provided)
 - Ensures SVG icons and `_index.md` files exist for each tag/category in the blog repo
 - Routes the post to the correct language directory via `--language` flag (e.g., `--language ko` → `content/ko/posts/`)
 - Includes all new image/taxonomy files in the git commit
 
 Use `--no-images` to skip all image handling.
 
-**Cover title tips:** Pass the post's title (it gets rendered on the generated cover image). The image colors are auto-selected based on the tags.
+**Cover title tips:** Pass the post's title in the target language (it gets rendered on the generated cover image). The image colors are auto-selected based on the tags.
 
-**Image frontmatter:** The `image:` field in frontmatter should be `/images/posts/{slug}/cover.jpg` where `{slug}` is the filename without `.md`. For example, filename `2026-02-24-tech-log.md` → `image: "/images/posts/2026-02-24-tech-log/cover.jpg"`.
+**Image frontmatter:** When `--language` is provided, the `image:` field is auto-injected as `/images/posts/{slug}/cover-{lang}.jpg`. For example, `--language ko` with filename `2026-02-24-tech-log.md` → `image: "/images/posts/2026-02-24-tech-log/cover-ko.jpg"`.
 
 Then ask the user: *"Post committed locally. Push to GitHub to deploy?"*
 
@@ -649,7 +650,7 @@ Same as the standard publish flow — publish both Korean and English versions:
 
 ```bash
 uv run log-blog publish /tmp/log-blog-post-en.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "English Title" --tags "tag1,tag2" --language en
-uv run log-blog publish /tmp/log-blog-post-ko.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "Korean Title" --tags "tag1,tag2" --language ko --no-images
+uv run log-blog publish /tmp/log-blog-post-ko.md --filename "YYYY-MM-DD-{slug}.md" --cover-title "Korean Title" --tags "tag1,tag2" --language ko
 ```
 
 Series tracking is automatic via frontmatter fields (`series`, `series_num`, `last_commit`). The skill detects continuation in Step 1.5 — no manual checking needed.
