@@ -664,14 +664,21 @@ def generate_cover_image(
     tags: list[str],
     post_slug: str,
     config: Config,
+    language: str | None = None,
 ) -> ImageResult:
     """Generate a gradient cover image with title and tag labels using PIL.
 
-    Skips if the cover image already exists on disk (safe for --update).
+    When *language* is given, the file is saved as ``cover-{lang}.jpg``
+    (e.g. ``cover-ko.jpg``) so each language gets its own cover with the
+    localised title rendered on it.  Without a language the legacy
+    ``cover.jpg`` name is used.
+
+    Skips if the target file already exists on disk (safe for --update).
     """
     repo = config.blog.repo_path_resolved
-    rel_url = f"/images/posts/{post_slug}/cover.jpg"
-    dest = repo / "static" / "images" / "posts" / post_slug / "cover.jpg"
+    cover_name = f"cover-{language}.jpg" if language else "cover.jpg"
+    rel_url = f"/images/posts/{post_slug}/{cover_name}"
+    dest = repo / "static" / "images" / "posts" / post_slug / cover_name
 
     if dest.exists():
         return ImageResult(path=dest, relative_url=rel_url, success=True)
@@ -869,16 +876,18 @@ def prepare_images(
     tags: list[str],
     categories: list[str],
     config: Config,
+    language: str | None = None,
 ) -> ImageAssets:
     """Top-level: generate cover image + ensure all taxonomy icons.
 
     Called during the publish step after tags/categories are finalized.
+    When *language* is given, the cover image is saved as ``cover-{lang}.jpg``.
     """
     assets = ImageAssets()
 
     # Cover image
     if config.images.cover_enabled and title:
-        assets.cover = generate_cover_image(title, tags, post_slug, config)
+        assets.cover = generate_cover_image(title, tags, post_slug, config, language=language)
         if assets.cover.success:
             print(f"Cover image ready: {assets.cover.relative_url}", file=sys.stderr)
         elif assets.cover.error:

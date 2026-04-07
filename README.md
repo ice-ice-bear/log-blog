@@ -185,7 +185,7 @@ uv run log-blog import-ai ~/Downloads/conversations.json --json
 
 ## Version
 
-0.1.0
+0.2.2
 
 ## License
 
