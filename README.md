@@ -69,8 +69,24 @@ Sets up a GitHub Pages blog with Hugo and the Stack theme from scratch.
 
 ## Installation
 
-```bash
-claude plugin add ice-ice-bear/log-blog
+In Claude Code, open the plugin menu and add the marketplace, then install:
+
+```
+/plugin  →  Marketplaces  →  Add  →  ice-ice-bear/log-blog
+/plugin  →  Discover  →  logblog  →  Install for you (user scope)
+```
+
+After installation, run `/reload-plugins` to activate. Verify with:
+
+```
+/logblog:post    # Create a blog post from browsing history
+/logblog:setup   # Set up a new Hugo blog
+```
+
+To update after new releases:
+
+```
+/plugin  →  Installed  →  logblog  →  Update now
 ```
 
 ### Python Dependencies
