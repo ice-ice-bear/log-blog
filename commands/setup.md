@@ -1,5 +1,4 @@
 ---
-name: setup
 description: Set up a GitHub Pages blog with Hugo and Stack theme end-to-end. Use when user wants to create a new blog or connect an existing Hugo blog to log-blog.
 ---
 

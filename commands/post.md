@@ -1,5 +1,4 @@
 ---
-name: post
 description: Read Chrome browsing history, classify tech content, generate and publish a tech blog post to your Hugo blog. Use when user wants to create a tech blog post from their browsing history.
 ---
 
