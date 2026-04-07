@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
-    "version": "0.2.4"
+    "version": "0.2.5"
   },
   "plugins": [
     {
       "name": "logblog",
       "source": "./",
       "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "author": {
         "name": "ice-ice-bear"
       },

@@ -20,25 +20,41 @@ from .publisher import publish_post, pull_latest
 console = Console()
 
 
-def _inject_frontmatter_field(content: str, key: str, value: str) -> str:
-    """Insert a YAML field into existing frontmatter if not already present."""
+def _inject_frontmatter_field(content: str, key: str, value: str, *, overwrite: bool = False) -> str:
+    """Insert or update a YAML field in existing frontmatter.
+
+    When *overwrite* is True, replaces an existing value for *key*.
+    Otherwise skips if the key is already present (legacy behaviour).
+    """
     if not content.startswith("---"):
         return content
     parts = content.split("---", 2)
     if len(parts) < 3:
         return content
     fm = parts[1]
-    if f"{key}:" in fm:
-        return content
-    # Insert after the first line (blank line after opening ---)
     lines = fm.rstrip("\n").split("\n")
-    # Find the line after 'date:' or 'title:' to insert image near the top
-    insert_idx = len(lines)
+
+    # Check if key already exists
+    existing_idx = None
     for i, line in enumerate(lines):
-        if line.startswith("date:"):
-            insert_idx = i + 1
+        if line.startswith(f"{key}:"):
+            existing_idx = i
             break
-    lines.insert(insert_idx, f'{key}: "{value}"')
+
+    if existing_idx is not None:
+        if overwrite:
+            lines[existing_idx] = f'{key}: "{value}"'
+        else:
+            return content
+    else:
+        # Insert after 'date:' line to keep image near the top
+        insert_idx = len(lines)
+        for i, line in enumerate(lines):
+            if line.startswith("date:"):
+                insert_idx = i + 1
+                break
+        lines.insert(insert_idx, f'{key}: "{value}"')
+
     return "---" + "\n".join(lines) + "\n---" + parts[2]
 
 
@@ -683,15 +699,14 @@ def cmd_publish(args: argparse.Namespace) -> None:
 
         if tags or categories or cover_title:
             console.print("[blue]Preparing images...[/blue]")
-            assets = prepare_images(post_slug, cover_title, tags, categories, config)
+            assets = prepare_images(post_slug, cover_title, tags, categories, config, language=args.language)
             extra_paths = assets.all_new_paths
             if extra_paths:
                 console.print(f"[green]{len(extra_paths)} image file(s) ready[/green]")
 
-            # Inject image frontmatter if cover was generated and not already present
+            # Inject or fix image frontmatter to match the generated cover path
             if assets.cover and assets.cover.success and assets.cover.relative_url:
-                if "image:" not in content.split("---", 2)[1] if content.startswith("---") else True:
-                    content = _inject_frontmatter_field(content, "image", assets.cover.relative_url)
+                content = _inject_frontmatter_field(content, "image", assets.cover.relative_url, overwrite=True)
 
     post_path = publish_post(
         content, filename, config,

@@ -260,7 +260,6 @@ Using the fetched content, write a Hugo markdown post. This should be a **deep-d
 
 ```markdown
 ---
-image: "/images/posts/YYYY-MM-DD-tech-log/cover.jpg"
 title: "Tech Log: YYYY-MM-DD"
 description: "One-sentence plain-text summary for SEO and og:description (NO quotes, NO special chars)"
 date: YYYY-MM-DD
@@ -384,7 +383,7 @@ After writing the original post (typically English), generate a Korean translati
 - **Technical terms** keep English where conventional in Korean tech writing (e.g., distributed tracing, supply chain attack), but explain in Korean context
 - **Translate**: `title`, `description` in frontmatter, all body text, Mermaid diagram labels, section headers
 - **Keep unchanged**: `tags`, `categories`, `date`, `series`, `series_num`, `last_commit`, code blocks, URLs, CLI commands
-- **Update `image:`**: Change the cover filename to match the target language — e.g., `cover-en.jpg` → `cover-ko.jpg` (the publisher auto-injects the correct path, but if you set it manually in frontmatter, use `cover-{lang}.jpg`)
+- **Do NOT include `image:`** — the CLI auto-injects the correct language-specific path (`cover-en.jpg` / `cover-ko.jpg`) during publish
 - **Mermaid safety rules still apply** in the Korean version — `&lt;br/&gt;`, quoted `/` labels, `description` frontmatter, `<!--more-->`
 
 Save both versions as separate temp files:
@@ -465,7 +464,7 @@ Use `--no-images` to skip all image handling.
 
 **Cover title tips:** Pass the post's title in the target language (it gets rendered on the generated cover image). The image colors are auto-selected based on the tags.
 
-**Image frontmatter:** When `--language` is provided, the `image:` field is auto-injected as `/images/posts/{slug}/cover-{lang}.jpg`. For example, `--language ko` with filename `2026-02-24-tech-log.md` → `image: "/images/posts/2026-02-24-tech-log/cover-ko.jpg"`.
+**Image frontmatter:** Do NOT include `image:` in the post markdown — the CLI auto-injects (or overwrites) it with the correct path when `--cover-title` is provided. When `--language` is given, the path becomes `/images/posts/{slug}/cover-{lang}.jpg` (e.g., `--language ko` → `cover-ko.jpg`). Each language gets its own cover image with the localized title rendered on it.
 
 Then ask the user: *"Post committed locally. Push to GitHub to deploy?"*
 
@@ -580,7 +579,6 @@ Use the structured data to write a **narrative dev log** (problem → solution),
 
 ```markdown
 ---
-image: "/images/posts/YYYY-MM-DD-{slug}/cover.jpg"
 title: "Series Title #N — Descriptive Subtitle"
 description: Plain text summary for SEO
 date: YYYY-MM-DD
