@@ -44,13 +44,23 @@ class BitbucketUrl:
 # YouTube patterns
 _YT_WATCH = re.compile(r"(?:www\.)?youtube\.com/watch\?.*v=([a-zA-Z0-9_-]{11})")
 _YT_SHORT = re.compile(r"youtu\.be/([a-zA-Z0-9_-]{11})")
+_YT_SHORTS = re.compile(r"(?:www\.)?youtube\.com/shorts/([a-zA-Z0-9_-]{11})")
 _YT_EMBED = re.compile(r"(?:www\.)?youtube\.com/embed/([a-zA-Z0-9_-]{11})")
+# YouTube noise — homepages, channel pages, playlists (not individual videos)
+_YT_NOISE = re.compile(r"(?:www\.)?youtube\.com/(?:@|channel/|playlist\?|feed/|$)")
+_YT_HOMEPAGE = re.compile(r"(?:www\.)?youtube\.com/?(?:[?#]|$)")
 
 # GitHub patterns
 _GH_PR = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)")
 _GH_ISSUE = re.compile(r"github\.com/([^/]+)/([^/]+)/issues/(\d+)")
-_GH_REPO = re.compile(r"github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$")
+_GH_REPO = re.compile(r"github\.com/([^/]+)/([^/]+?)(?:\.git)?/?(?:[?#]|$)")
 _GH_OTHER = re.compile(r"github\.com/([^/]+)/([^/]+)")
+# GitHub non-repo pages — user profiles, notifications, topics, explore, etc.
+_GH_NON_REPO = re.compile(
+    r"github\.com/(?:topics|explore|notifications|settings|orgs|marketplace"
+    r"|sponsors|collections|trending|features|pricing|enterprise|readme)(?:/|[?#]|$)"
+    r"|github\.com/[^/]+/?(?:[?#]|$)"  # user profile pages (single path segment)
+)
 
 # Bitbucket patterns
 _BB_PR = re.compile(r"bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)")
@@ -84,7 +94,7 @@ _AI_CHAT_DOMAINS = ("perplexity.ai", "chatgpt.com", "chat.openai.com", "claude.a
 # Noise patterns — landing pages, auth flows, settings, etc.
 # Checked BEFORE conversation patterns to prevent wasted Playwright fetches.
 _AI_NOISE_PATTERNS = [
-    re.compile(r"claude\.ai/(?:oauth|chrome|code|project)(?:/|[?#]|$)"),
+    re.compile(r"claude\.ai/(?:oauth|chrome|code|project|settings|new|download)(?:/|[?#]|$)"),
     re.compile(r"claude\.ai/?(?:[?#]|$)"),
     re.compile(r"chatgpt\.com/?(?:[?#]|$)"),
     re.compile(r"chatgpt\.com/(?:auth|backend-api|gpts)(?:/|[?#]|$)"),
@@ -103,17 +113,38 @@ _DOCS = re.compile(
     r"|docs\.rs"
     r"|pkg\.go\.dev"
     r"|pypi\.org"
+    r"|code\.claude\.com/docs"
+)
+
+# General noise — search engines, auth, email, social media non-content pages
+_GENERAL_NOISE = re.compile(
+    r"google\.com/search\?"                # Google search results
+    r"|google\.com/aclk\?"                 # Google ad clicks
+    r"|accounts\.google\.com"              # Google auth flows
+    r"|mail\.google\.com"                  # Gmail
+    r"|signin\.aws\.amazon\.com"           # AWS auth
+    r"|console\.aws\.amazon\.com/console/home"  # AWS console home (not specific service)
 )
 
 
 def classify_url(url: str) -> UrlType:
     """Classify a URL into a content type for fetch dispatch."""
-    # YouTube
-    if _YT_WATCH.search(url) or _YT_SHORT.search(url) or _YT_EMBED.search(url):
-        return UrlType.YOUTUBE
+    # General noise — filter early before any specific checks
+    if _GENERAL_NOISE.search(url):
+        return UrlType.AI_LANDING  # reuse AI_LANDING as generic "skip" type
 
-    # GitHub
+    # YouTube — check noise first, then video patterns
+    if "youtube.com" in url or "youtu.be" in url:
+        if _YT_NOISE.search(url) or _YT_HOMEPAGE.search(url):
+            return UrlType.AI_LANDING
+        if _YT_WATCH.search(url) or _YT_SHORT.search(url) or _YT_SHORTS.search(url) or _YT_EMBED.search(url):
+            return UrlType.YOUTUBE
+        return UrlType.WEB_PAGE
+
+    # GitHub — filter non-repo pages first
     if "github.com" in url:
+        if _GH_NON_REPO.search(url):
+            return UrlType.WEB_PAGE
         if _GH_PR.search(url):
             return UrlType.GITHUB_PR
         if _GH_ISSUE.search(url):
@@ -166,7 +197,7 @@ def classify_url(url: str) -> UrlType:
 
 def parse_youtube_id(url: str) -> str | None:
     """Extract a YouTube video ID from a URL."""
-    for pattern in (_YT_WATCH, _YT_SHORT, _YT_EMBED):
+    for pattern in (_YT_WATCH, _YT_SHORT, _YT_SHORTS, _YT_EMBED):
         m = pattern.search(url)
         if m:
             return m.group(1)
