@@ -61,6 +61,7 @@ _BB_REPO = re.compile(r"bitbucket\.org/([^/]+)/([^/]+?)/?(?:[?#]|$)")
 _PERPLEXITY = re.compile(
     r"perplexity\.ai/search/[^?#/]+"      # perplexity.ai/search/{query-or-uuid}
     r"|perplexity\.ai/page/[^?#/]+"       # perplexity.ai/page/{id} (Perplexity Pages)
+    r"|perplexity\.ai/computer/a/[^?#/]+" # perplexity.ai/computer/a/{slug} (Computer agent sessions)
 )
 # Verified: 2026-02-25 — ChatGPT migrated from chat.openai.com → chatgpt.com (2024)
 _CHATGPT = re.compile(
@@ -91,6 +92,8 @@ _AI_NOISE_PATTERNS = [
     re.compile(r"gemini\.google\.com/(?:app)?/?(?:[?#]|$)"),
     re.compile(r"perplexity\.ai/?(?:[?#]|$)"),
     re.compile(r"perplexity\.ai/search/new(?:[?#]|$)"),  # "new search" landing page
+    re.compile(r"perplexity\.ai/computer/new(?:[?#]|$)"), # "new computer" landing page
+    re.compile(r"perplexity\.ai/(?:pro|billing|max)(?:/|[?#]|$)"),  # billing/subscription pages
 ]
 
 # Docs patterns

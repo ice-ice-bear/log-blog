@@ -1,6 +1,6 @@
 [project]
 name = "log-blog"
-version = "0.2.5"
+version = "0.2.6"
 description = "Browser history to tech blog pipeline"
 requires-python = ">=3.12"
 dependencies = [
