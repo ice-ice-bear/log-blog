@@ -804,7 +804,7 @@ def _generate_taxonomy_card(
 
 
 def _ensure_taxonomy_icon(
-    slug: str, kind: str, config: Config,
+    slug: str, kind: str, config: Config, language: str | None = None,
 ) -> TaxonomyResult:
     """Ensure a taxonomy entry (tag or category) has an SVG icon, JPG card, and _index.md.
 
@@ -812,6 +812,8 @@ def _ensure_taxonomy_icon(
         slug: Kebab-case slug (e.g., "python", "tech-log").
         kind: Either "tag" or "cat".
         config: Application config.
+        language: Language code for multi-language blogs. Taxonomy _index.md is
+            written under the language's content root (e.g., ``content/ko/tags/{slug}``).
     """
     prefix = f"{kind}-"
     content_subdir = "tags" if kind == "tag" else "categories"
@@ -819,7 +821,14 @@ def _ensure_taxonomy_icon(
     repo = config.blog.repo_path_resolved
     svg_path = repo / "static" / "images" / "taxonomy" / f"{prefix}{slug}.svg"
     jpg_path = repo / "static" / "images" / "taxonomy" / f"{prefix}{slug}.jpg"
-    index_dir = repo / "content" / content_subdir / slug
+
+    # Resolve taxonomy root based on language: parent of the posts dir
+    # (e.g., content/ko/posts → content/ko → content/ko/tags/{slug})
+    if language and language in config.blog.language_content_dirs:
+        lang_root = config.blog.content_path_for(language).parent
+        index_dir = lang_root / content_subdir / slug
+    else:
+        index_dir = repo / "content" / content_subdir / slug
     index_path = index_dir / "_index.md"
 
     svg_exists = svg_path.exists()
@@ -856,14 +865,14 @@ def _ensure_taxonomy_icon(
     return result
 
 
-def ensure_tag_icon(tag_slug: str, config: Config) -> TaxonomyResult:
+def ensure_tag_icon(tag_slug: str, config: Config, language: str | None = None) -> TaxonomyResult:
     """Ensure a tag has an SVG icon and _index.md in the blog repo."""
-    return _ensure_taxonomy_icon(tag_slug, "tag", config)
+    return _ensure_taxonomy_icon(tag_slug, "tag", config, language=language)
 
 
-def ensure_category_icon(category_slug: str, config: Config) -> TaxonomyResult:
+def ensure_category_icon(category_slug: str, config: Config, language: str | None = None) -> TaxonomyResult:
     """Ensure a category has an SVG icon and _index.md in the blog repo."""
-    return _ensure_taxonomy_icon(category_slug, "cat", config)
+    return _ensure_taxonomy_icon(category_slug, "cat", config, language=language)
 
 
 # ---------------------------------------------------------------------------
@@ -897,7 +906,7 @@ def prepare_images(
     if config.images.taxonomy_enabled:
         for tag in tags:
             try:
-                result = ensure_tag_icon(tag, config)
+                result = ensure_tag_icon(tag, config, language=language)
                 assets.tag_results.append(result)
                 if result.already_existed:
                     pass  # silent
@@ -912,7 +921,7 @@ def prepare_images(
     if config.images.taxonomy_enabled:
         for cat in categories:
             try:
-                result = ensure_category_icon(cat, config)
+                result = ensure_category_icon(cat, config, language=language)
                 assets.category_results.append(result)
                 if result.already_existed:
                     pass
