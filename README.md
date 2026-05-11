@@ -41,6 +41,54 @@ Creates a tech blog post from your recent browsing history.
 - Cover image generation with PIL gradients
 - Hugo frontmatter with tags, categories, and cover image
 
+### `/logblog:kakao-post`
+
+Creates tech blog posts from URLs people have shared in **a user-selected subset** of KakaoTalk open chats. The chat is the data source — never the subject of the post.
+
+**What it does:**
+
+1. Lists open chats with unread messages (uses [`kakao-chat`](https://github.com/ice-ice-bear/kakaotalk-chat-analyzer) CLI)
+2. You pick which chats to mine (1-5 typical, never bulk-publish all)
+3. Extracts the unread URLs and filters them by source tier (GitHub repos, arxiv, vendor blogs, etc.)
+4. Shows you ~20 candidates and lets you pick 5-15 to write up, with optional groupings (e.g., bundle 5 same-day vendor announcements into one digest post)
+5. Multi-agent dispatch for batch writing — one agent per post in parallel
+6. Writes Korean+English posts with inline links throughout, mermaid diagrams, and a categorized References section
+7. Publishes to your Hugo blog the same way `/logblog:post` does
+
+**Strict source-hiding rule:** Published posts never mention KakaoTalk, 카카오톡, 채팅방, 오픈채팅, open chat, or chat threads. The blog reads as if you encountered each announcement directly. The skill includes pre- and post-publish self-check greps to enforce this.
+
+**Usage:**
+
+```
+/logblog:kakao-post
+```
+
+**Prerequisites:**
+
+- Run `/logblog:kakao-setup` once on a new machine to install kakaocli, derive the `KAKAOCLI_KEY`, and install the wrapper
+- `config.yaml` already configured (run `/logblog:setup` if not)
+
+### `/logblog:kakao-setup`
+
+One-shot installer for everything `/logblog:kakao-post` depends on. macOS only.
+
+**What it does:**
+
+1. Diagnoses environment — Homebrew, full Xcode (not just Command Line Tools), KakaoTalk app, Full Disk Access
+2. Installs kakaocli via `brew install silver-flight-group/tap/kakaocli`
+3. Clones the [kakaotalk-chat-analyzer](https://github.com/ice-ice-bear/kakaotalk-chat-analyzer) wrapper and adds a `kakao-chat()` shell function so the wrapper is on PATH
+4. Derives the `KAKAOCLI_KEY` (SQLCipher decryption key) — tries `kakaocli auth` first, falls back to a SHA-512 brute-force of the User ID when auto-auth times out (handles User IDs above ~22M)
+5. Persists the key to your `~/.zshrc` (or `~/.bashrc`)
+6. Runs three smoke tests end-to-end (`kakaocli chats` → `kakao-chat unread`)
+
+**Usage:**
+
+```
+/logblog:kakao-setup
+```
+
+Run this once per machine. After it succeeds, `/logblog:kakao-post` works without further setup.
+
 ### `/logblog:setup`
 
 Sets up a GitHub Pages blog with Hugo and the Stack theme from scratch.
@@ -201,7 +249,7 @@ uv run log-blog import-ai ~/Downloads/conversations.json --json
 
 ## Version
 
-0.2.2
+0.3.0
 
 ## License
 

@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
-    "version": "0.2.8"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "logblog",
       "source": "./",
       "description": "Turn your daily browsing, coding sessions, and commits into tech blog posts on GitHub Pages",
-      "version": "0.2.8",
+      "version": "0.3.0",
       "author": {
         "name": "ice-ice-bear"
       },
@@ -23,7 +23,9 @@
         "hugo",
         "github-pages",
         "chrome-history",
-        "dev-log"
+        "dev-log",
+        "kakaotalk",
+        "open-chat"
       ],
       "category": "developer-tools"
     }
