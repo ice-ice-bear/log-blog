@@ -72,6 +72,15 @@ images:
 # Sessions are auto-discovered from ~/.claude/projects/ by default.
 sessions:
   claude_dir: "~/.claude/projects"  # Where Claude Code stores session transcripts
+
+  # Map a real repo directory name → a different published series name. Use this
+  # when the on-disk project name and the public blog series name should differ
+  # (e.g. an internal demo repo published under its product name). The alias is
+  # applied wherever the project name is surfaced: --list table, --json output,
+  # --project filter, series-continuation detection, and series frontmatter.
+  series_aliases: {}
+  #   diffs-orchestrator-demo: creative-agent-studio
+
   # projects:                       # Optional overrides for auto-discovery (parsed manually)
   #   custom-name:
   #     session_dir: "~/.claude/projects/-Users-you-some-project-path"

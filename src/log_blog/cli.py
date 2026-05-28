@@ -458,31 +458,44 @@ def _check_series_updates(config) -> list[dict]:
         if existing is None or (post.series_num or 0) > (existing.series_num or 0):
             series_map[post.series] = post
 
+    # Aliased series → real repo directory name (so we can find the repo on disk
+    # when the published series name doesn't match the directory).
+    reverse_aliases = config.sessions.reverse_series_aliases
+
     # Check each series repo for new commits
     updates = []
     for series_name, post in series_map.items():
+        # Search order: real repo directory name (if aliased), then the series name itself
+        search_names = []
+        if series_name in reverse_aliases:
+            search_names.append(reverse_aliases[series_name])
+        search_names.append(series_name)
+
         # Find the repo path — check common locations with case-insensitive match
         repo_path = None
-        for base in [
-            Path.home() / "Documents" / "github",
-            Path.home() / "Documents" / "bitbucket",
-        ]:
-            if not base.is_dir():
-                continue
-            # Exact match first
-            candidate = base / series_name
-            if candidate.is_dir() and (candidate / ".git").is_dir():
-                repo_path = candidate
-                break
-            # Case-insensitive fallback
-            try:
-                for child in base.iterdir():
-                    if child.name.lower() == series_name.lower() and child.is_dir():
-                        if (child / ".git").is_dir():
-                            repo_path = child
-                            break
-            except PermissionError:
-                continue
+        for candidate_name in search_names:
+            for base in [
+                Path.home() / "Documents" / "github",
+                Path.home() / "Documents" / "bitbucket",
+            ]:
+                if not base.is_dir():
+                    continue
+                # Exact match first
+                candidate = base / candidate_name
+                if candidate.is_dir() and (candidate / ".git").is_dir():
+                    repo_path = candidate
+                    break
+                # Case-insensitive fallback
+                try:
+                    for child in base.iterdir():
+                        if child.name.lower() == candidate_name.lower() and child.is_dir():
+                            if (child / ".git").is_dir():
+                                repo_path = child
+                                break
+                except PermissionError:
+                    continue
+                if repo_path:
+                    break
             if repo_path:
                 break
 
@@ -526,6 +539,7 @@ def cmd_sessions(args: argparse.Namespace) -> None:
         hours, claude_dir,
         include_short=args.include_short,
         min_sessions=min_sessions,
+        series_aliases=config.sessions.series_aliases,
     )
 
     # Also check series repos for new commits since last_commit

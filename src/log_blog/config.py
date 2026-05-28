@@ -117,10 +117,15 @@ class ImagesConfig:
 @dataclass
 class SessionsConfig:
     claude_dir: str = "~/.claude/projects"
+    series_aliases: dict[str, str] = field(default_factory=dict)
 
     @property
     def claude_dir_path(self) -> Path:
         return Path(self.claude_dir).expanduser()
+
+    @property
+    def reverse_series_aliases(self) -> dict[str, str]:
+        return {v: k for k, v in self.series_aliases.items()}
 
 
 @dataclass

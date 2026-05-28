@@ -163,8 +163,15 @@ def discover_projects(
     claude_dir: Path,
     include_short: bool = False,
     min_sessions: int = 2,
+    series_aliases: dict[str, str] | None = None,
 ) -> list[ProjectInfo]:
-    """Find all Claude Code projects with recent sessions."""
+    """Find all Claude Code projects with recent sessions.
+
+    series_aliases: maps real repo directory name → published series name.
+    Applied at name derivation so downstream consumers (table, JSON, series
+    matching, --project filter) all see the published name.
+    """
+    aliases = series_aliases or {}
     if not claude_dir.exists():
         logger.warning("Claude projects directory not found: %s", claude_dir)
         return []
@@ -200,6 +207,9 @@ def discover_projects(
             name = repo_path.name
         else:
             name = dirname.rsplit("-", 1)[-1] if "-" in dirname else dirname
+
+        # Apply series alias if configured
+        name = aliases.get(name, name)
 
         repo_type = _detect_repo_type(repo_path) if is_git and repo_path else "local"
 
