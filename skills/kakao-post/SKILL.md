@@ -1,11 +1,11 @@
 ---
 name: kakao-post
-description: Turn unread URLs from selected KakaoTalk open chats into deep-dive tech blog posts on your Hugo blog. Picks a subset of chats (not all), extracts shared URLs, filters by source tier, lets the user select which to write up, and publishes Korean+English posts via log-blog. The chat is the data source, NEVER the subject of the post — references to KakaoTalk, 카카오톡, 채팅방, 오픈채팅, open chat, chat thread are strictly forbidden in published content.
+description: Turn URLs shared since your last blog post (across selected KakaoTalk open chats) into deep-dive tech blog posts on your Hugo blog. Computes the mining window from the user's most recent post date, picks a subset of chats (not all), extracts URLs in that window, filters by source tier, lets the user select which to write up, and publishes Korean+English posts via log-blog. The chat is the data source, NEVER the subject of the post — references to KakaoTalk, 카카오톡, 채팅방, 오픈채팅, open chat, chat thread are strictly forbidden in published content.
 ---
 
 # Log-Blog: KakaoTalk Open Chat → Tech Blog Post
 
-You are orchestrating a pipeline that turns URLs people have shared in **a user-selected subset** of KakaoTalk open chats into deep-dive technical posts on the user's Hugo blog. The flow mirrors `/logblog:post` (browser history → blog), but the source is open-chat link feeds.
+You are orchestrating a pipeline that turns URLs shared in **a user-selected subset** of KakaoTalk open chats — within the time window since the user's last blog post — into deep-dive technical posts on the user's Hugo blog. The flow mirrors `/logblog:post` (browser history → blog), but the source is open-chat link feeds and the discovery axis is the user's **post timeline** (not chat-local unread state, which clears whenever the user opens KakaoTalk on any device).
 
 **Project root**: The directory where you are running Claude Code (the log-blog repo).
 **Blog repo**: Configured in `config.yaml` → `blog.repo_path`.
@@ -58,7 +58,7 @@ Inline-link target count: at least 15 external URLs per single-topic post, more 
 
 Like `/logblog:post` lets the user pick which repos to feature, this skill processes only the open chats and only the URLs the user explicitly approves. **Default behavior is to ask, not to bulk-publish.**
 
-Never auto-publish all unread URLs from every chat. The flow always passes through a user selection step before any drafting begins.
+Never auto-publish every URL the post-timeline window surfaces. The flow always passes through a user selection step before any drafting begins.
 
 ---
 
@@ -84,59 +84,106 @@ If `kakao-chat` is invoked from the analyzer repo via `uv run` (no shell functio
 
 ---
 
-## Step 1: Discover Chats with Unread URLs
+## Step 0: Compute the Post-Timeline Cutoff
+
+The mining window starts from the user's most recent blog post date — not from chat-local unread state. This makes discovery idempotent and survives KakaoTalk being opened on another device.
 
 ```bash
-kakao-chat chats --unread-only --min-members 100
+uv run log-blog scan --json --limit 30 \
+  | python3 -c '
+import sys, json, datetime
+posts = json.load(sys.stdin)
+dates = [p["date"] for p in posts if p.get("date")]
+if not dates:
+    print("LAST_POST_DATE=none SINCE=30d")
+else:
+    last = max(dates)
+    days = (datetime.date.today() - datetime.date.fromisoformat(last)).days
+    days = max(2, min(30, days))
+    print(f"LAST_POST_DATE={last} SINCE={days}d")
+'
+```
+
+- **Always compute `max(p["date"])`** — `log-blog scan` does not strictly sort by frontmatter date.
+- **Floor 2d**: if the last post is <24h old, widen so we have *something* to mine.
+- **Ceiling 30d**: cap at the analyzer's safe extraction window.
+- **Fresh blog (no posts)**: `LAST_POST_DATE=none`, fall back to `SINCE=30d` and announce that.
+
+Export `SINCE` and `LAST_POST_DATE` for Steps 1 and 3. Print a one-line banner:
+
+> "Mining window: $LAST_POST_DATE → today ($SINCE)"
+
+---
+
+## Step 1: Discover Chats
+
+```bash
+kakao-chat chats --min-members 100
 ```
 
 Output format (one line per chat):
 ```
-[18472992720722154] (unknown) (3027 members) [unread: 177]
-[18429762279613799] (unknown) (2840 members) [unread: 1424]
+[18472992720722154] (unknown) (3027 members)
+[18429762279613799] (unknown) (2840 members)
 ```
 
-Adjust `--min-members N` if the user wants to include smaller groups (default 100 keeps it to substantive open chats).
+The `chats` subcommand does not take `--since`, so it cannot pre-count URLs in the window. Two paths:
 
-If no unread chats found, ask whether to widen the time window or include all chats (drop `--unread-only`).
+**Default — show member counts only**: trust the user to know which chats are link-heavy. Cheapest, no kakaocli scans up front. Pick this path unless the user asks for help choosing.
+
+**Optional — pre-rank by URL count in window**: if the user wants help choosing, loop the top ~10 chats by member count through `kakao-chat extract <id> --since $SINCE --limit 5000 --json` and report `[urls-since-last-post: N]` per chat. Costs one kakaocli scan per ranked chat (~5-15s each).
+
+Adjust `--min-members N` if the user wants smaller groups (default 100 keeps it to substantive open chats).
+
+**Fallback — empty window**: if Step 0 produced a tight `SINCE` (e.g., 2d after a same-day post) AND the user's selected chats yield 0 URLs in Step 3, ask whether to widen to `7d`/`14d`/`30d` or temporarily fall back to unread mode (`kakao-chat chats --unread-only`). Do not silently widen.
 
 ---
 
 ## Step 2: User Selects Subset of Chats
 
-Show the chats as a numbered list with member count and unread count. Then ask:
+Show the chats as a numbered list with member count (and `[urls-since-last-post: N]` if pre-ranked in Step 1). Then ask:
 
+> "Mining window: $LAST_POST_DATE → today ($SINCE)."
 > "Which chats should I mine for blog material? (comma-separated numbers, e.g., 1,3 — pick 1-5 chats)"
-> "Tip: chats with high unread counts often have more URLs but more noise. The 1-3 most active chats usually give enough material for a week of posts."
+> "Tip: chats with high URL counts in the window have more material but more noise. The 1-3 most active chats usually give enough material for a week of posts."
 
 **Wait for explicit approval.** Do not proceed with all chats by default.
 
 ---
 
-## Step 3: Extract Unread URLs from Selected Chats
+## Step 3: Extract URLs from Selected Chats (Post-Timeline Window)
 
-For the selected chat(s):
+For each user-selected chat, run one `extract` call with the `$SINCE` from Step 0:
 
 ```bash
-# Single chat
-kakao-chat extract <chat_id> --since 30d --limit <unread_count> --json > /tmp/kakao-dump.json
-
-# Or batch (all unread chats matching min-members)
-kakao-chat unread --min-members 100 --max-chats <N> --since 30d --json > /tmp/kakao-dump.json
+for chat_id in <id1> <id2> <id3>; do
+  kakao-chat extract "$chat_id" --since "$SINCE" --limit 5000 --json \
+    > "/tmp/kakao-dump-${chat_id}.json"
+done
 ```
 
-Use `--max-chats` to honor the user's selection from Step 2. `--since 30d` is a safety margin — adjust if the user wants a tighter window.
+Then merge per-chat dumps into one combined file (same shape as the old `unread` subcommand for downstream compatibility with Step 4):
 
-The JSON shape:
+```bash
+python3 -c "
+import json, glob
+chats = [json.load(open(f)) for f in sorted(glob.glob('/tmp/kakao-dump-*.json'))]
+print(json.dumps({'chat_count': len(chats), 'chats': chats}, ensure_ascii=False, indent=2))
+" > /tmp/kakao-dump.json
+```
+
+**Why `--limit 5000`**: `--since $SINCE` is the real filter; the limit is a generous safety cap. If a chat returns exactly 5000 messages, the window is overflowing — raise the cap or narrow `SINCE`.
+
+**Why this replaces `kakao-chat unread`**: that subcommand is gated on KakaoTalk's local unread state, which clears whenever the user opens the app on any device. The post-timeline window is gated on blog state, which only advances when a new post is actually published.
+
+The merged JSON shape (one chat):
 ```json
 {
   "chat_count": 3,
   "chats": [
     {
       "chat_id": 18429762279613799,
-      "display_name": "(unknown)",
-      "member_count": 2840,
-      "unread_count": 1424,
+      "since": "14d",
       "total_messages": 1339,
       "total_urls": 101,
       "urls": [
@@ -147,6 +194,8 @@ The JSON shape:
   ]
 }
 ```
+
+Note: `extract` output does NOT include `display_name`, `member_count`, or `unread_count` (those came from the `unread` wrapper). If Step 4 or 5 needs them, cross-reference the Step 1 chat listing.
 
 ---
 
@@ -387,7 +436,7 @@ Report the resulting live URLs to the user. The blog has separate KO and EN home
 
 ## Why subset selection matters
 
-The `kakao-chat unread` command can pull thousands of URLs across many chats. Bulk-publishing all of them produces low-signal posts (mostly news re-shares) and burns Claude tokens for content the user doesn't care about. The default behavior is always:
+The post-timeline window can surface hundreds to thousands of URLs across the user's selected chats — especially if it's been a week or two since the last post. Bulk-publishing all of them produces low-signal posts (mostly news re-shares) and burns Claude tokens for content the user doesn't care about. The default behavior is always:
 
 1. **Show counts**, ask the user which chats
 2. **Tier A filter**, show ~20 candidates
@@ -414,6 +463,6 @@ If the user's content genuinely needs to mention a chat (e.g., they're writing a
 - **Filename collisions** on dates with multiple posts (e.g., five 2026-05-07 posts): use specific slugs (`...-openai-digest`, `...-codex-r-claude-code-bridge`) rather than generic ones.
 - **Mermaid `<br/>` breaks rendering** under Hugo's `safeHTML` — always use `&lt;br/&gt;`. Mermaid `/` in labels triggers rhombus parsing — always quote `["a/b"]`.
 - **`description` with quotes / colons / special chars** breaks `og:description` HTML attribute. Plain text only.
-- **The `unread_count` from `kakao-chat chats` is the precise message count to use as `--limit`** — kakaocli has no native unread filter, so we approximate by pulling the latest N messages.
+- **Do NOT use `kakao-chat unread` or `--unread-only` as the primary entry path.** Unread state is per-device and clears whenever the user opens KakaoTalk anywhere — laptop, phone, tablet. Discovery must use the post-timeline `$SINCE` from Step 0 so the same input state always produces the same candidate set. Unread mode is a fallback only when the post-timeline window is empty (e.g., user posted today and chats have had no activity since).
 - **Sequential publish is safer than parallel** for the publish step (git index race). Chain with `&&` rather than dispatching parallel Bash calls to the same blog repo.
 - **Always run the Rule 1 grep self-check both before publish AND after publish.** Pre-check catches drafts; post-check catches in-place edits / commit history. The most common leak is the word "채팅방" appearing inside an `## 인사이트` section that an agent expanded after the rest was scrubbed.
